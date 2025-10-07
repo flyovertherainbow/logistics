@@ -83,7 +83,7 @@ if excel_a and excel_b:
         st.header("PO Numbers Appearing More Than Once in Excel-A")
         st.write(duplicates)
     else:
-    st.write("No duplicate PO numbers found in Excel-A.")
+        st.write("No duplicate PO numbers found in Excel-A.")
     
 
     # Find matches and non-matches
