@@ -32,8 +32,9 @@ def extract_po_numbers(ref_str):
         numbers.add(match.group(1))
     return list(numbers)
 
-st.write(df_a_expanded.columns)
 st.write(df_a_expanded.head())
+st.write(df_a_expanded.columns)
+
 
 po_counts = df_a_expanded['Extracted PO'].value_counts()
 duplicates = po_counts[po_counts > 1]
