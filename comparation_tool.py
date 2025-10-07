@@ -18,13 +18,6 @@ excel_a = st.file_uploader("Upload ECLY Shipment Level Report (Excel A)", type=[
 excel_b = st.file_uploader("Upload Import Doc (Excel B)", type=["xlsx"])
 
 def extract_po_numbers(ref_str):
-    """
-    Extracts PO numbers from strings such as:
-    PO106178, PO123456, PO 105689, PO. 108123, PO106236/PO106268,
-    PO106236/ PO106268, PO106236 /PO106268, PO107123, PO107362,
-    PO109362-R, PO106922-23, 106669, etc.
-    Handles ranges (PO106922-23 -> 106922, 106923) and variants.
-    """
     if not isinstance(ref_str, str):
         return []
     numbers = set()
@@ -57,6 +50,21 @@ def is_valid_date(val):
     try:
         pd.to_datetime(val)
         return True
+    except:
+        return False
+
+def is_container_value(val):
+    """Checks if the value matches (20GP), (40HC), (20RE), (40RE), (40GP)"""
+    if isinstance(val, str):
+        return bool(re.match(r"\((20GP|40HC|20RE|40RE|40GP)\)", val.strip()))
+    return False
+
+def is_same_day(date_a, date_b):
+    """Checks if date_a and date_b are the same day (ignores time)."""
+    try:
+        d_a = pd.to_datetime(date_a)
+        d_b = pd.to_datetime(date_b)
+        return d_a.date() == d_b.date()
     except:
         return False
 
@@ -101,40 +109,17 @@ if excel_a and excel_b:
         merged = pd.merge(matched, df_b, left_on='Extracted PO', right_on='BC PO', suffixes=('_A', '_B'))
         diff_rows = []
         compare_cols = ['Estimated Arrival', 'Container Number']  # Add more columns as needed
+
         for idx, row in merged.iterrows():
             diffs = {}
             for col in compare_cols:
                 col_a = col + '_A'
                 col_b = col + '_B'
-                if col_a in merged.columns and col_b in merged.columns:
-                    if pd.isnull(row[col_a]) and pd.isnull(row[col_b]):
+                a_val = row.get(col_a, None)
+                b_val = row.get(col_b, None)
+
+                # 1. For Estimated Arrival: compare only date part
+                if col == "Estimated Arrival":
+                    if pd.isnull(a_val) and pd.isnull(b_val):
                         continue
-                    if row[col_a] != row[col_b]:
-                        diffs[col] = {'Excel A': row[col_a], 'Excel B': row[col_b]}
-            if diffs:
-                diff_rows.append({'PO': row['Extracted PO'], 'Differences': diffs})
-        if diff_rows:
-            st.write("Rows with differences in Estimated Arrival or Container Number:")
-            for row in diff_rows:
-                st.write(f"PO: {row['PO']}")
-                for col, diff in row['Differences'].items():
-                    st.write(f" - {col}: Excel A = {diff['Excel A']}, Excel B = {diff['Excel B']}")
-        else:
-            st.write("No differences found in compared columns for matched POs.")
-    else:
-        st.write("No matched PO numbers found.")
 
-    st.header("Unmatched PO Numbers in Excel A")
-    if not unmatched.empty:
-        st.write(unmatched['Extracted PO'].unique())
-    else:
-        st.write("All PO numbers from Excel A were found in Excel B.")
-
-    st.header("Downloadable Results")
-    result = pd.DataFrame({
-        'PO': df_a_expanded['Extracted PO'],
-        'Matched': df_a_expanded['Match']
-    })
-    st.download_button("Download Comparison Results", result.to_csv(index=False), "comparison_results.csv", "text/csv")
-else:
-    st.info("Please upload both Excel files to proceed.")
