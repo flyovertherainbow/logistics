@@ -32,7 +32,6 @@ def extract_po_numbers(ref_str):
         numbers.add(match.group(1))
     return list(numbers)
 
-# Count PO occurrences in Excel-A
 po_counts = df_a_expanded['Extracted PO'].value_counts()
 duplicates = po_counts[po_counts > 1]
 if not duplicates.empty:
@@ -40,6 +39,7 @@ if not duplicates.empty:
     st.write(duplicates)
 else:
     st.write("No duplicate PO numbers found in Excel-A.")
+
 
 #def extract_6digit_numbers(ref_str):
     # Find all 6-digit numbers
