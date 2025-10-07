@@ -13,11 +13,33 @@ The app will compare PO numbers and show matched and unmatched results.
 excel_a = st.file_uploader("Upload ECLY Shipment Level Report (Excel A)", type=["xlsx"])
 excel_b = st.file_uploader("Upload Import Doc (Excel B)", type=["xlsx"])
 
-def extract_6digit_numbers(ref_str):
+def extract_po_numbers(ref_str):
+    if not isinstance(ref_str, str):
+        return []
+    # Find all "PO" followed by 6 digits, possibly with ranges like "-23"
+    pattern = r'PO\s?(\d{6})(?:-(\d{2}))?'
+    numbers = []
+    for match in re.finditer(pattern, ref_str):
+        base = int(match.group(1))
+        if match.group(2):
+            # Handle range, e.g. PO106922-23 means 106922 and 106923
+            end = int(match.group(2))
+            # Assume last two digits replace base's last two digits
+            start_last_two = base % 100
+            for n in range(start_last_two, end + 1):
+                numbers.append(str(base - start_last_two + n))
+        else:
+            numbers.append(str(base))
+    # Also extract any lone 6-digit numbers not preceded by "PO"
+    numbers += re.findall(r'(?<!PO\s?)(?<!PO)(?<!PO\s)(\d{6})', ref_str)
+    return numbers
+
+
+#def extract_6digit_numbers(ref_str):
     # Find all 6-digit numbers
-    if isinstance(ref_str, str):
-        return re.findall(r'\b\d{6}\b', ref_str)
-    return []
+#    if isinstance(ref_str, str):
+#        return re.findall(r'\b\d{6}\b', ref_str)
+#    return []
 
 if excel_a and excel_b:
     # Read files
@@ -39,7 +61,7 @@ if excel_a and excel_b:
     df_a = df_a[df_a['Estimated Arrival'].apply(is_valid_date)].copy()
 
     # Extract all 6-digit numbers from All References in Excel A
-    df_a['Extracted PO'] = df_a['All References'].apply(extract_6digit_numbers)
+    df_a['Extracted PO'] = df_a['All References'].apply(extract_po_numbers)
 
     # Flatten out rows so each PO gets its own row
     df_a_expanded = df_a.explode('Extracted PO')
