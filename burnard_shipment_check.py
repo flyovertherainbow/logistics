@@ -22,13 +22,36 @@ def extract_po_numbers(order_value):
         return []
     return re.findall(r"\b\d{6}\b", str(order_value))
 
+def normalize_eta(val):
+    try:
+        dt = pd.to_datetime(val)
+        return dt.date()
+    except:
+        return None
+
+def normalize_voyage(val):
+    digits = re.findall(r"\d+", str(val))
+    return digits[0] if digits else ""
+
 def compare_rows(row_a, row_b, columns_to_compare):
     differences = {}
     for col in columns_to_compare:
         val_a = str(row_a.get(col, "")).strip()
         val_b = str(row_b.get(col, "")).strip()
-        if val_a != val_b:
-            differences[col] = {"Excel A": val_a, "Excel B": val_b}
+
+        if col == "ETA":
+            date_a = normalize_eta(val_a)
+            date_b = normalize_eta(val_b)
+            if date_a != date_b:
+                differences[col] = {"Excel A": val_a, "Excel B": val_b}
+        elif col == "Arrival Voyage":
+            norm_a = normalize_voyage(val_a)
+            norm_b = normalize_voyage(val_b)
+            if norm_a != norm_b:
+                differences[col] = {"Excel A": val_a, "Excel B": val_b}
+        else:
+            if val_a != val_b:
+                differences[col] = {"Excel A": val_a, "Excel B": val_b}
     return differences
 
 if file_a and file_b:
@@ -79,9 +102,14 @@ if file_a and file_b:
         st.subheader("🔍 Matched PO Differences")
         if matched_differences:
             for item in matched_differences:
-                st.write(f"**PO:** {item['PO']}")
+                st.markdown(f"<b>PO:</b> <code>{item['PO']}</code>", unsafe_allow_html=True)
                 for col, diff in item["Differences"].items():
-                    st.write(f"- {col}: Excel A = `{diff['Excel A']}`, Excel B = `{diff['Excel B']}`")
+                    st.markdown(
+                        f"<span style='color:darkred'><b>{col}</b></span>: "
+                        f"<span style='color:blue'><b>Excel A</b></span> = <span style='color:green'>{diff['Excel A']}</span>, "
+                        f"<span style='color:blue'><b>Excel B</b></span> = <span style='color:orange'>{diff['Excel B']}</span>",
+                        unsafe_allow_html=True
+                    )
         else:
             st.write("No differences found in matched POs.")
 
