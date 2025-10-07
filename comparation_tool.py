@@ -122,4 +122,46 @@ if excel_a and excel_b:
                 if col == "Estimated Arrival":
                     if pd.isnull(a_val) and pd.isnull(b_val):
                         continue
+                    if is_same_day(a_val, b_val):
+                        continue
+                    if a_val != b_val:
+                        diffs[col] = {'Excel A': a_val, 'Excel B': b_val}
+                # 2. For Container Number: Excel A NaN, Excel B is container code → not different
+                elif col == "Container Number":
+                    if pd.isnull(a_val) and is_container_value(b_val):
+                        continue
+                    if a_val != b_val:
+                        diffs[col] = {'Excel A': a_val, 'Excel B': b_val}
+                # 3. Default: normal compare
+                else:
+                    if pd.isnull(a_val) and pd.isnull(b_val):
+                        continue
+                    if a_val != b_val:
+                        diffs[col] = {'Excel A': a_val, 'Excel B': b_val}
+            if diffs:
+                diff_rows.append({'PO': row['Extracted PO'], 'Differences': diffs})
+        if diff_rows:
+            st.write("Rows with differences in Estimated Arrival or Container Number:")
+            for row in diff_rows:
+                st.write(f"PO: {row['PO']}")
+                for col, diff in row['Differences'].items():
+                    st.write(f" - {col}: Excel A = {diff['Excel A']}, Excel B = {diff['Excel B']}")
+        else:
+            st.write("No differences found in compared columns for matched POs.")
+    else:
+        st.write("No matched PO numbers found.")
 
+    st.header("Unmatched PO Numbers in Excel A")
+    if not unmatched.empty:
+        st.write(unmatched['Extracted PO'].unique())
+    else:
+        st.write("All PO numbers from Excel A were found in Excel B.")
+
+    st.header("Downloadable Results")
+    result = pd.DataFrame({
+        'PO': df_a_expanded['Extracted PO'],
+        'Matched': df_a_expanded['Match']
+    })
+    st.download_button("Download Comparison Results", result.to_csv(index=False), "comparison_results.csv", "text/csv")
+else:
+    st.info("Please upload both Excel files to proceed.")
