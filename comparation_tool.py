@@ -7,45 +7,58 @@ st.title("Shipment Report Comparison Tool")
 
 st.write("""
 Upload your ECLY Shipment Level Report (Excel A) and Import Doc (Excel B).
-The app will compare PO numbers and show matched and unmatched results.
+This app will:
+- Clean data in Excel A (removes rows with missing or invalid Estimated Arrival).
+- Extract all PO numbers (including ranges and variants) from All References in Excel A.
+- Compare to BC PO numbers in Excel B, showing matches and unmatched POs.
+- Highlight POs that appear more than once in Excel A.
 """)
 
 excel_a = st.file_uploader("Upload ECLY Shipment Level Report (Excel A)", type=["xlsx"])
 excel_b = st.file_uploader("Upload Import Doc (Excel B)", type=["xlsx"])
 
 def extract_po_numbers(ref_str):
+    """
+    Extracts PO numbers from strings such as:
+    PO106178, PO123456, PO 105689, PO. 108123, PO106236/PO106268,
+    PO106236/ PO106268, PO106236 /PO106268, PO107123, PO107362,
+    PO109362-R, PO106922-23, 106669, etc.
+    Handles ranges (PO106922-23 -> 106922, 106923) and variants.
+    """
     if not isinstance(ref_str, str):
         return []
     numbers = set()
-    # Handle ranges like PO106922-23
+    # Handle ranges like PO106922-23 (-> 106922, 106923)
     for match in re.finditer(r'PO\s?(\d{6})-(\d{2})', ref_str):
         base = int(match.group(1))
         end = int(match.group(2))
         start_last_two = base % 100
         for n in range(start_last_two, end + 1):
             numbers.add(str(base - start_last_two + n))
-    # Handle normal PO numbers: PO106918, PO 106918, PO. 106918, etc.
-    for match in re.finditer(r'PO[.\s]?\s?(\d{6})', ref_str):
-        numbers.add(match.group(1))
-    # Also include 6-digit numbers that might not be preceded by PO
-    for match in re.finditer(r'\b(\d{6})\b', ref_str):
-        numbers.add(match.group(1))
+    # Handle format: PO106236/PO106268 or PO106236 / PO106268
+    for group in re.split(r'[\/,]', ref_str):
+        m = re.search(r'PO[.\s]?\s?(\d{6})', group)
+        if m:
+            numbers.add(m.group(1))
+        # Capture lone 6-digit numbers
+        lone = re.findall(r'\b\d{6}\b', group)
+        for num in lone:
+            numbers.add(num)
+    # Capture PO numbers with suffixes (e.g. PO106177-R2)
+    for m in re.finditer(r'PO[.\s]?\s?(\d{6})-\w+', ref_str):
+        numbers.add(m.group(1))
     return list(numbers)
 
-po_counts = df_a_expanded['Extracted PO'].value_counts()
-duplicates = po_counts[po_counts > 1]
-if not duplicates.empty:
-    st.header("PO Numbers Appearing More Than Once in Excel-A")
-    st.write(duplicates)
-else:
-    st.write("No duplicate PO numbers found in Excel-A.")
-
-
-#def extract_6digit_numbers(ref_str):
-    # Find all 6-digit numbers
-#    if isinstance(ref_str, str):
-#        return re.findall(r'\b\d{6}\b', ref_str)
-#    return []
+def is_valid_date(val):
+    if pd.isnull(val):
+        return False
+    if isinstance(val, datetime):
+        return True
+    try:
+        pd.to_datetime(val)
+        return True
+    except:
+        return False
 
 if excel_a and excel_b:
     # Read files
@@ -53,38 +66,28 @@ if excel_a and excel_b:
     df_b = pd.read_excel(excel_b)
 
     # Clean Excel A: keep only rows with valid date in Estimated Arrival
-    def is_valid_date(val):
-        if pd.isnull(val):
-            return False
-        if isinstance(val, datetime):
-            return True
-        try:
-            pd.to_datetime(val)
-            return True
-        except:
-            return False
-
     df_a = df_a[df_a['Estimated Arrival'].apply(is_valid_date)].copy()
 
-    # Extract all 6-digit numbers from All References in Excel A
+    # Extract PO numbers in Excel A
     df_a['Extracted PO'] = df_a['All References'].apply(extract_po_numbers)
 
-    # Flatten out rows so each PO gets its own row
+    # Expand rows so each PO gets its own row
     df_a_expanded = df_a.explode('Extracted PO')
     df_a_expanded = df_a_expanded[df_a_expanded['Extracted PO'].notnull()]
 
-    # BC PO numbers in Excel B (make sure they're strings)
-    df_b['BC PO'] = df_b['BC PO'].astype(str)
-    b_po_set = set(df_b['BC PO'])
-
+    # Count duplicate POs
     po_counts = df_a_expanded['Extracted PO'].value_counts()
     duplicates = po_counts[po_counts > 1]
+
+    st.header("PO Numbers Appearing More Than Once in Excel-A")
     if not duplicates.empty:
-        st.header("PO Numbers Appearing More Than Once in Excel-A")
         st.write(duplicates)
     else:
         st.write("No duplicate PO numbers found in Excel-A.")
-    
+
+    # BC PO numbers in Excel B (ensure string type)
+    df_b['BC PO'] = df_b['BC PO'].astype(str)
+    b_po_set = set(df_b['BC PO'])
 
     # Find matches and non-matches
     df_a_expanded['Match'] = df_a_expanded['Extracted PO'].apply(lambda x: x in b_po_set)
@@ -94,12 +97,10 @@ if excel_a and excel_b:
 
     st.header("Matched PO Numbers")
     if not matched.empty:
-        # Compare other columns for matched PO numbers
         matched['BC PO'] = matched['Extracted PO']
         merged = pd.merge(matched, df_b, left_on='Extracted PO', right_on='BC PO', suffixes=('_A', '_B'))
         diff_rows = []
-        # Compare relevant columns
-        compare_cols = ['Estimated Arrival', 'Container Number']  # add more if needed
+        compare_cols = ['Estimated Arrival', 'Container Number']  # Add more columns as needed
         for idx, row in merged.iterrows():
             diffs = {}
             for col in compare_cols:
@@ -130,12 +131,10 @@ if excel_a and excel_b:
         st.write("All PO numbers from Excel A were found in Excel B.")
 
     st.header("Downloadable Results")
-    # Optionally, let user download comparison results
     result = pd.DataFrame({
         'PO': df_a_expanded['Extracted PO'],
         'Matched': df_a_expanded['Match']
     })
     st.download_button("Download Comparison Results", result.to_csv(index=False), "comparison_results.csv", "text/csv")
-
 else:
     st.info("Please upload both Excel files to proceed.")
