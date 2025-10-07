@@ -32,10 +32,6 @@ def extract_po_numbers(ref_str):
         numbers.add(match.group(1))
     return list(numbers)
 
-st.write(df_a_expanded.head())
-st.write(df_a_expanded.columns)
-
-
 po_counts = df_a_expanded['Extracted PO'].value_counts()
 duplicates = po_counts[po_counts > 1]
 if not duplicates.empty:
@@ -80,6 +76,15 @@ if excel_a and excel_b:
     # BC PO numbers in Excel B (make sure they're strings)
     df_b['BC PO'] = df_b['BC PO'].astype(str)
     b_po_set = set(df_b['BC PO'])
+
+    po_counts = df_a_expanded['Extracted PO'].value_counts()
+    duplicates = po_counts[po_counts > 1]
+    if not duplicates.empty:
+        st.header("PO Numbers Appearing More Than Once in Excel-A")
+        st.write(duplicates)
+    else:
+    st.write("No duplicate PO numbers found in Excel-A.")
+    
 
     # Find matches and non-matches
     df_a_expanded['Match'] = df_a_expanded['Extracted PO'].apply(lambda x: x in b_po_set)
