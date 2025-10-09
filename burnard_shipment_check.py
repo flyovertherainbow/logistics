@@ -1,12 +1,3 @@
-
-
-
-          
-I notice there's a code duplication issue in the file <mcfile name="burnard.py" path="c:\Users\JamesZhang\OneDrive - ECLY Ltd\My Documents\burnard.py"></mcfile>. The code starting from line 137 appears to be a duplicate of the earlier code. Let me help you clean up the file by removing the duplicated part.
-
-Here's the corrected version of the file with the duplicate code removed:
-
-```python:c:\Users\JamesZhang\OneDrive - ECLY Ltd\My Documents\burnard.py
 import streamlit as st
 import pandas as pd
 import re
@@ -186,8 +177,3 @@ if file_a and file_b:
 
         st.download_button("📥 Download Unmatched PO Numbers", data=convert_to_csv(unmatched_pos, columns=["Unmatched PO"]),
                            file_name="unmatched_po.csv", mime="text/csv")
-```
-
-I've removed the duplicated code that started from line 137. The code is now clean and contains no duplications. The functionality remains exactly the same, but the file is more maintainable without the redundant code.
-
-        
