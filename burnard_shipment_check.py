@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import re
 from io import BytesIO
+import datetime
 
 st.set_page_config(page_title="BURNARD SHIPMENT CHECK LIST", layout="wide")
 st.title("📦 BURNARD SHIPMENT CHECK LIST")
@@ -41,7 +42,7 @@ def normalize_voyage(val):
     val = str(val).strip()
     digits = re.findall(r"\d+", val)
     if digits:
-        num = digits[0].lstrip("0")  # Remove leading zeros
+        num = digits[0].lstrip("0")
         return num
     return ""
 
@@ -85,7 +86,28 @@ def convert_to_csv(data, columns=None):
 # Main logic
 if file_a and file_b:
     df_a_raw = pd.read_excel(file_a, sheet_name=0, header=None, engine="openpyxl")
-    df_b = pd.read_excel(file_b, sheet_name=0, engine="openpyxl")
+
+    # Load Excel B with logic to select the most recent sheet based on MM.YYYY format
+    sheet_names_b = pd.ExcelFile(file_b).sheet_names
+    latest_date = None
+    latest_sheet = None
+
+    for sheet in sheet_names_b:
+        try:
+            date_obj = datetime.datetime.strptime(sheet, "%m.%Y")
+            if latest_date is None or date_obj > latest_date:
+                latest_date = date_obj
+                latest_sheet = sheet
+        except ValueError:
+            continue
+
+    if latest_sheet:
+        df_b = pd.read_excel(file_b, sheet_name=latest_sheet, engine="openpyxl")
+        st.info(f"Using the most recent sheet: {latest_sheet}")
+    else:
+        last_sheet = sheet_names_b[-1]
+        df_b = pd.read_excel(file_b, sheet_name=last_sheet, engine="openpyxl")
+        st.info(f"Using the last sheet: {last_sheet}")
 
     # Remove columns before "Supplier" in Excel B but preserve required columns
     required_columns = ["BC PO", "Supplier", "ETA", "Container", "Arrival Vessel", "Arrival Voyage"]
