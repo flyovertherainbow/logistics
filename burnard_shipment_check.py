@@ -312,7 +312,7 @@ if file_a and file_b:
 
         st.download_button("📥 Download Unmatched PO Numbers", data=convert_to_csv(unmatched_pos, columns=["Unmatched PO"]),
                            file_name="unmatched_po.csv", mime="text/csv")
-                df = pd.DataFrame(data)
+                           df = pd.DataFrame(data)
             else:
                 df = pd.DataFrame(data, columns=columns)
             df.to_csv(output, index=False)
