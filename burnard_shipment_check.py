@@ -27,6 +27,8 @@ def extract_po_numbers(order_value):
 
 # Normalize ETA to date only
 def normalize_eta(val):
+    if pd.isna(val) or val == "" or val is None:
+        return None
     try:
         dt = pd.to_datetime(val)
         return dt.date()
@@ -47,10 +49,14 @@ def format_eta_display(eta_value):
 
 # Normalize Arrival Vessel: remove all spaces and trim
 def normalize_vessel(val):
+    if pd.isna(val) or val == "" or val is None:
+        return ""
     return re.sub(r"\s+", "", str(val)).strip()
 
 # Normalize Arrival Voyage: remove leading 0 and trailing letters
 def normalize_voyage(val):
+    if pd.isna(val) or val == "" or val is None:
+        return ""
     val = str(val).strip()
     digits = re.findall(r"\d+", val)
     if digits:
@@ -58,17 +64,28 @@ def normalize_voyage(val):
         return num
     return ""
 
-# Extract container numbers with type - IMPROVED VERSION
+# Extract container numbers with type
 def extract_container_info(container_value):
     if pd.isna(container_value) or container_value == "" or container_value is None:
         return {"display": ""}
     
     container_str = str(container_value).strip()
-    
-    # Return the original value as display - don't try to parse/format
     return {"display": container_str}
 
-# Updated compare_rows function with proper display for both A and B
+# Get display value for any column
+def get_display_value(value, col_name):
+    if pd.isna(value) or value == "" or value is None:
+        return ""
+    
+    if col_name == "ETA":
+        return format_eta_display(value)
+    elif col_name == "Container":
+        container_info = extract_container_info(value)
+        return container_info["display"]
+    else:
+        return str(value)
+
+# Updated compare_rows function to properly handle empty values
 def compare_rows(row_a, row_b, columns_to_compare):
     differences = {}
     
@@ -76,42 +93,40 @@ def compare_rows(row_a, row_b, columns_to_compare):
         val_a = row_a.get(col, "")
         val_b = row_b.get(col, "")
 
+        # Get display values for both A and B
+        display_a = get_display_value(val_a, col)
+        display_b = get_display_value(val_b, col)
+
         if col == "ETA":
             date_a = normalize_eta(val_a)
             date_b = normalize_eta(val_b)
+            # Consider it a difference if one has date and other doesn't, or dates are different
             if date_a != date_b:
-                # Use formatted display values (date only)
-                display_a = format_eta_display(val_a)
-                display_b = format_eta_display(val_b)
                 differences[col] = {"Excel A": display_a, "Excel B": display_b}
                 
         elif col == "Container":
-            # Extract container information for both A and B
-            container_a = extract_container_info(val_a)
-            container_b = extract_container_info(val_b)
-            
-            # Compare the display values directly
-            if container_a["display"] != container_b["display"]:
+            # Consider it a difference if display values are different
+            if display_a != display_b:
                 differences[col] = {
-                    "Excel A": container_a["display"],
-                    "Excel B": container_b["display"]
+                    "Excel A": display_a,
+                    "Excel B": display_b
                 }
                 
         elif col == "Arrival Vessel":
             norm_a = normalize_vessel(val_a)
             norm_b = normalize_vessel(val_b)
             if norm_a != norm_b:
-                differences[col] = {"Excel A": str(val_a), "Excel B": str(val_b)}
+                differences[col] = {"Excel A": display_a, "Excel B": display_b}
                 
         elif col == "Arrival Voyage":
             norm_a = normalize_voyage(val_a)
             norm_b = normalize_voyage(val_b)
             if norm_a != norm_b:
-                differences[col] = {"Excel A": str(val_a), "Excel B": str(val_b)}
+                differences[col] = {"Excel A": display_a, "Excel B": display_b}
                 
         else:
             if str(val_a).strip() != str(val_b).strip():
-                differences[col] = {"Excel A": str(val_a), "Excel B": str(val_b)}
+                differences[col] = {"Excel A": display_a, "Excel B": display_b}
     
     # Apply comparison behavior rules
     has_eta_diff = "ETA" in differences
