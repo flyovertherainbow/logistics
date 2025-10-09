@@ -33,6 +33,18 @@ def normalize_eta(val):
     except:
         return None
 
+# Format ETA for display - date only without time
+def format_eta_display(eta_value):
+    if pd.isna(eta_value) or eta_value == "" or eta_value is None:
+        return ""
+    try:
+        # Try to parse as datetime and return date only
+        dt = pd.to_datetime(eta_value)
+        return dt.strftime("%Y-%m-%d")
+    except:
+        # Return original if can't parse
+        return str(eta_value)
+
 # Normalize Arrival Vessel: remove all spaces and trim
 def normalize_vessel(val):
     return re.sub(r"\s+", "", str(val)).strip()
@@ -46,69 +58,60 @@ def normalize_voyage(val):
         return num
     return ""
 
-# Extract container numbers with type
+# Extract container numbers with type - IMPROVED VERSION
 def extract_container_info(container_value):
-    if pd.isna(container_value):
-        return {"number": "", "type": ""}
+    if pd.isna(container_value) or container_value == "" or container_value is None:
+        return {"display": ""}
     
     container_str = str(container_value).strip()
     
-    # Pattern for 4 letters + 7 digits followed by container type in parentheses
-    pattern = r'([A-Za-z]{4}\d{7})\s*\(?([A-Za-z0-9]+)\)?'
-    match = re.search(pattern, container_str)
-    
-    if match:
-        return {"number": match.group(1), "type": match.group(2)}
-    else:
-        # If no full container number found, try to extract just the type
-        type_pattern = r'\(?([A-Za-z0-9]+)\)?'
-        type_match = re.search(type_pattern, container_str)
-        if type_match and len(type_match.group(1)) >= 2:  # At least 2 chars for container type
-            return {"number": "", "type": type_match.group(1)}
-        else:
-            return {"number": "", "type": container_str}
+    # Return the original value as display - don't try to parse/format
+    return {"display": container_str}
 
-# Updated compare_rows function with container format recognition
+# Updated compare_rows function with proper display for both A and B
 def compare_rows(row_a, row_b, columns_to_compare):
     differences = {}
     
     for col in columns_to_compare:
-        val_a = str(row_a.get(col, "")).strip()
-        val_b = str(row_b.get(col, "")).strip()
+        val_a = row_a.get(col, "")
+        val_b = row_b.get(col, "")
 
         if col == "ETA":
             date_a = normalize_eta(val_a)
             date_b = normalize_eta(val_b)
             if date_a != date_b:
-                differences[col] = {"Excel A": val_a, "Excel B": val_b}
+                # Use formatted display values (date only)
+                display_a = format_eta_display(val_a)
+                display_b = format_eta_display(val_b)
+                differences[col] = {"Excel A": display_a, "Excel B": display_b}
                 
         elif col == "Container":
-            # Extract container information
+            # Extract container information for both A and B
             container_a = extract_container_info(val_a)
             container_b = extract_container_info(val_b)
             
-            # Compare container number and type
-            if container_a["number"] != container_b["number"] or container_a["type"] != container_b["type"]:
-                # Format display values
-                display_a = f"{container_a['number']} ({container_a['type']})".strip(" ()")
-                display_b = f"{container_b['number']} ({container_b['type']})".strip(" ()")
-                differences[col] = {"Excel A": display_a, "Excel B": display_b}
+            # Compare the display values directly
+            if container_a["display"] != container_b["display"]:
+                differences[col] = {
+                    "Excel A": container_a["display"],
+                    "Excel B": container_b["display"]
+                }
                 
         elif col == "Arrival Vessel":
             norm_a = normalize_vessel(val_a)
             norm_b = normalize_vessel(val_b)
             if norm_a != norm_b:
-                differences[col] = {"Excel A": val_a, "Excel B": val_b}
+                differences[col] = {"Excel A": str(val_a), "Excel B": str(val_b)}
                 
         elif col == "Arrival Voyage":
             norm_a = normalize_voyage(val_a)
             norm_b = normalize_voyage(val_b)
             if norm_a != norm_b:
-                differences[col] = {"Excel A": val_a, "Excel B": val_b}
+                differences[col] = {"Excel A": str(val_a), "Excel B": str(val_b)}
                 
         else:
-            if val_a != val_b:
-                differences[col] = {"Excel A": val_a, "Excel B": val_b}
+            if str(val_a).strip() != str(val_b).strip():
+                differences[col] = {"Excel A": str(val_a), "Excel B": str(val_b)}
     
     # Apply comparison behavior rules
     has_eta_diff = "ETA" in differences
@@ -240,8 +243,8 @@ if file_a and file_b:
                     diff = item["Differences"]["ETA"]
                     st.markdown(
                         f"<span style='color:darkred'><b>ETA</b></span>: "
-                        f"<span style='color:blue'><b>Excel A</b></span> = <span style='color:green'>{diff['Excel A']}</span>, "
-                        f"<span style='color:blue'><b>Excel B</b></span> = <span style='color:orange'>{diff['Excel B']}</span>",
+                        f"<span style='color:blue'><b>Excel A</b></span> = <span style='color:green'>'{diff['Excel A']}'</span>, "
+                        f"<span style='color:blue'><b>Excel B</b></span> = <span style='color:orange'>'{diff['Excel B']}'</span>",
                         unsafe_allow_html=True
                     )
                 
@@ -249,8 +252,8 @@ if file_a and file_b:
                     diff = item["Differences"]["Container"]
                     st.markdown(
                         f"<span style='color:darkred'><b>Container</b></span>: "
-                        f"<span style='color:blue'><b>Excel A</b></span> = <span style='color:green'>{diff['Excel A']}</span>, "
-                        f"<span style='color:blue'><b>Excel B</b></span> = <span style='color:orange'>{diff['Excel B']}</span>",
+                        f"<span style='color:blue'><b>Excel A</b></span> = <span style='color:green'>'{diff['Excel A']}'</span>, "
+                        f"<span style='color:blue'><b>Excel B</b></span> = <span style='color:orange'>'{diff['Excel B']}'</span>",
                         unsafe_allow_html=True
                     )
                 st.write("---")
@@ -268,7 +271,8 @@ if file_a and file_b:
         for item in matched_differences:
             row = {"PO": item["PO"]}
             for col, diff in item["Differences"].items():
-                row[col] = f"{diff['Excel A']} | {diff['Excel B']}"
+                row[f"{col}_Excel_A"] = diff['Excel A']
+                row[f"{col}_Excel_B"] = diff['Excel B']
             export_matched.append(row)
 
         if export_matched:
