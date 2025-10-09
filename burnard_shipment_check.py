@@ -46,9 +46,32 @@ def normalize_voyage(val):
         return num
     return ""
 
-# Compare rows between Excel A and B
+# Extract container numbers with type
+def extract_container_info(container_value):
+    if pd.isna(container_value):
+        return {"number": "", "type": ""}
+    
+    container_str = str(container_value).strip()
+    
+    # Pattern for 4 letters + 7 digits followed by container type in parentheses
+    pattern = r'([A-Za-z]{4}\d{7})\s*\(?([A-Za-z0-9]+)\)?'
+    match = re.search(pattern, container_str)
+    
+    if match:
+        return {"number": match.group(1), "type": match.group(2)}
+    else:
+        # If no full container number found, try to extract just the type
+        type_pattern = r'\(?([A-Za-z0-9]+)\)?'
+        type_match = re.search(type_pattern, container_str)
+        if type_match and len(type_match.group(1)) >= 2:  # At least 2 chars for container type
+            return {"number": "", "type": type_match.group(1)}
+        else:
+            return {"number": "", "type": container_str}
+
+# Updated compare_rows function with container format recognition
 def compare_rows(row_a, row_b, columns_to_compare):
     differences = {}
+    
     for col in columns_to_compare:
         val_a = str(row_a.get(col, "")).strip()
         val_b = str(row_b.get(col, "")).strip()
@@ -58,20 +81,57 @@ def compare_rows(row_a, row_b, columns_to_compare):
             date_b = normalize_eta(val_b)
             if date_a != date_b:
                 differences[col] = {"Excel A": val_a, "Excel B": val_b}
+                
+        elif col == "Container":
+            # Extract container information
+            container_a = extract_container_info(val_a)
+            container_b = extract_container_info(val_b)
+            
+            # Compare container number and type
+            if container_a["number"] != container_b["number"] or container_a["type"] != container_b["type"]:
+                # Format display values
+                display_a = f"{container_a['number']} ({container_a['type']})".strip(" ()")
+                display_b = f"{container_b['number']} ({container_b['type']})".strip(" ()")
+                differences[col] = {"Excel A": display_a, "Excel B": display_b}
+                
         elif col == "Arrival Vessel":
             norm_a = normalize_vessel(val_a)
             norm_b = normalize_vessel(val_b)
             if norm_a != norm_b:
                 differences[col] = {"Excel A": val_a, "Excel B": val_b}
+                
         elif col == "Arrival Voyage":
             norm_a = normalize_voyage(val_a)
             norm_b = normalize_voyage(val_b)
             if norm_a != norm_b:
                 differences[col] = {"Excel A": val_a, "Excel B": val_b}
+                
         else:
             if val_a != val_b:
                 differences[col] = {"Excel A": val_a, "Excel B": val_b}
-    return differences
+    
+    # Apply comparison behavior rules
+    has_eta_diff = "ETA" in differences
+    has_container_diff = "Container" in differences
+    
+    # Filter differences based on rules
+    filtered_differences = {}
+    
+    if has_eta_diff and not has_container_diff:
+        # Only ETA differences → show only ETA
+        filtered_differences = {"ETA": differences["ETA"]}
+    elif has_container_diff and not has_eta_diff:
+        # Only Container differences → show only Container
+        filtered_differences = {"Container": differences["Container"]}
+    elif has_eta_diff and has_container_diff:
+        # Both differ → show both ETA and Container
+        filtered_differences = {
+            "ETA": differences["ETA"],
+            "Container": differences["Container"]
+        }
+    # If only Arrival Vessel/Voyage differences but no ETA/Container, show nothing
+    
+    return filtered_differences
 
 # Convert data to CSV for download
 def convert_to_csv(data, columns=None):
@@ -165,18 +225,35 @@ if file_a and file_b:
             else:
                 unmatched_pos.append(po)
 
-        # Display results
+        # Display results with updated logic
         st.subheader("🔍 Matched PO Differences")
         if matched_differences:
             for item in matched_differences:
                 st.markdown(f"<b>PO:</b> <code>{item['PO']}</code>", unsafe_allow_html=True)
-                for col, diff in item["Differences"].items():
+                
+                # Check what differences we have
+                has_eta = "ETA" in item["Differences"]
+                has_container = "Container" in item["Differences"]
+                
+                # Display according to rules
+                if has_eta:
+                    diff = item["Differences"]["ETA"]
                     st.markdown(
-                        f"<span style='color:darkred'><b>{col}</b></span>: "
+                        f"<span style='color:darkred'><b>ETA</b></span>: "
                         f"<span style='color:blue'><b>Excel A</b></span> = <span style='color:green'>{diff['Excel A']}</span>, "
                         f"<span style='color:blue'><b>Excel B</b></span> = <span style='color:orange'>{diff['Excel B']}</span>",
                         unsafe_allow_html=True
                     )
+                
+                if has_container:
+                    diff = item["Differences"]["Container"]
+                    st.markdown(
+                        f"<span style='color:darkred'><b>Container</b></span>: "
+                        f"<span style='color:blue'><b>Excel A</b></span> = <span style='color:green'>{diff['Excel A']}</span>, "
+                        f"<span style='color:blue'><b>Excel B</b></span> = <span style='color:orange'>{diff['Excel B']}</span>",
+                        unsafe_allow_html=True
+                    )
+                st.write("---")
         else:
             st.write("No differences found in matched POs.")
 
@@ -194,8 +271,10 @@ if file_a and file_b:
                 row[col] = f"{diff['Excel A']} | {diff['Excel B']}"
             export_matched.append(row)
 
-        st.download_button("📥 Download Matched Differences", data=convert_to_csv(export_matched),
-                           file_name="matched_differences.csv", mime="text/csv")
+        if export_matched:
+            st.download_button("📥 Download Matched Differences", data=convert_to_csv(export_matched),
+                               file_name="matched_differences.csv", mime="text/csv")
 
-        st.download_button("📥 Download Unmatched PO Numbers", data=convert_to_csv(unmatched_pos, columns=["Unmatched PO"]),
-                           file_name="unmatched_po.csv", mime="text/csv")
+        if unmatched_pos:
+            st.download_button("📥 Download Unmatched PO Numbers", data=convert_to_csv(unmatched_pos, columns=["Unmatched PO"]),
+                               file_name="unmatched_po.csv", mime="text/csv")
