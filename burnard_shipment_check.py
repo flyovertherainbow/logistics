@@ -6,7 +6,6 @@ from io import BytesIO
 st.set_page_config(page_title="BURNARD SHIPMENT CHECK LIST", layout="wide")
 st.title("📦 BURNARD SHIPMENT CHECK LIST")
 
-# File upload
 file_a = st.file_uploader("Upload Excel A (Client Order Followup Status Summary Report)", type=["xlsx"], key="file_a")
 file_b = st.file_uploader("Upload Excel B (Import Doc)", type=["xlsx"], key="file_b")
 
@@ -25,13 +24,20 @@ def extract_po_numbers(order_value):
 def normalize_eta(val):
     try:
         dt = pd.to_datetime(val)
-        return dt.date()
+        return dt.date()  # Only date part
     except:
         return None
 
+def normalize_vessel(val):
+    return re.sub(r"\s+", "", str(val)).strip()
+
 def normalize_voyage(val):
-    digits = re.findall(r"\d+", str(val))
-    return digits[0] if digits else ""
+    val = str(val).strip()
+    digits = re.findall(r"\d+", val)
+    if digits:
+        num = digits[0].lstrip("0")  # Remove leading zeros
+        return num
+    return ""
 
 def compare_rows(row_a, row_b, columns_to_compare):
     differences = {}
@@ -43,6 +49,11 @@ def compare_rows(row_a, row_b, columns_to_compare):
             date_a = normalize_eta(val_a)
             date_b = normalize_eta(val_b)
             if date_a != date_b:
+                differences[col] = {"Excel A": val_a, "Excel B": val_b}
+        elif col == "Arrival Vessel":
+            norm_a = normalize_vessel(val_a)
+            norm_b = normalize_vessel(val_b)
+            if norm_a != norm_b:
                 differences[col] = {"Excel A": val_a, "Excel B": val_b}
         elif col == "Arrival Voyage":
             norm_a = normalize_voyage(val_a)
@@ -58,6 +69,11 @@ if file_a and file_b:
     df_a_raw = pd.read_excel(file_a, sheet_name=0, header=None, engine="openpyxl")
     df_b = pd.read_excel(file_b, sheet_name=0, engine="openpyxl")
 
+    # Remove columns before "Supplier" in Excel B
+    if "Supplier" in df_b.columns:
+        supplier_index = df_b.columns.get_loc("Supplier")
+        df_b = df_b.iloc[:, supplier_index:]
+
     header_keywords = ["Order #", "Supplier"]
     header_row_index = detect_header_row(df_a_raw, header_keywords)
 
@@ -66,18 +82,15 @@ if file_a and file_b:
     else:
         df_a = pd.read_excel(file_a, sheet_name=0, header=header_row_index, engine="openpyxl")
 
-        # Clean Excel A: remove rows with invalid ETA
         df_a["ETA"] = pd.to_datetime(df_a["ETA"], errors="coerce")
         df_a_clean = df_a.dropna(subset=["ETA"])
 
-        # Extract PO numbers from Excel A
         po_map_a = {}
         for idx, row in df_a_clean.iterrows():
             po_list = extract_po_numbers(row["Order #"])
             for po in po_list:
                 po_map_a[po] = row
 
-        # Extract PO numbers from Excel B
         po_set_b = set()
         for val in df_b["BC PO"]:
             po_set_b.update(extract_po_numbers(val))
@@ -98,7 +111,6 @@ if file_a and file_b:
             else:
                 unmatched_pos.append(po)
 
-        # Display results
         st.subheader("🔍 Matched PO Differences")
         if matched_differences:
             for item in matched_differences:
@@ -119,7 +131,6 @@ if file_a and file_b:
         else:
             st.write("All PO numbers from Excel A matched with Excel B.")
 
-        # Export buttons
         def convert_to_csv(data, columns=None):
             output = BytesIO()
             if isinstance(data, list):
