@@ -64,13 +64,101 @@ def normalize_voyage(val):
         return num
     return ""
 
-# Extract container numbers with type
-def extract_container_info(container_value):
+# Improved container comparison logic
+def normalize_container_comparison(container_value):
     if pd.isna(container_value) or container_value == "" or container_value is None:
-        return {"display": ""}
+        return {"number": "", "type": "", "display": ""}
     
     container_str = str(container_value).strip()
-    return {"display": container_str}
+    
+    # Extract container number and type
+    # Pattern for 4 letters + 7 digits followed by container type
+    pattern = r'([A-Za-z]{4}\d{7})\s*[\(]?\s*([A-Za-z0-9]*)\s*[\)]?'
+    match = re.search(pattern, container_str)
+    
+    if match:
+        container_num = match.group(1).upper()
+        container_type = match.group(2).upper()
+        
+        # Handle container type variations
+        normalized_type = normalize_container_type(container_type)
+        
+        return {
+            "number": container_num, 
+            "type": normalized_type,
+            "display": f"{container_num}({normalized_type})" if normalized_type else container_num
+        }
+    else:
+        # If no container number pattern found, try to extract just the type
+        type_pattern = r'[\(]?\s*([A-Za-z0-9]+)\s*[\)]?'
+        type_match = re.search(type_pattern, container_str)
+        if type_match and len(type_match.group(1)) >= 2:
+            container_type = type_match.group(1).upper()
+            normalized_type = normalize_container_type(container_type)
+            return {
+                "number": "", 
+                "type": normalized_type,
+                "display": f"({normalized_type})" if normalized_type else container_str
+            }
+    
+    return {"number": "", "type": "", "display": container_str}
+
+def normalize_container_type(container_type):
+    """Normalize container types to handle variations"""
+    if not container_type:
+        return ""
+    
+    container_type = container_type.upper().strip()
+    
+    # Handle common container type variations
+    type_mappings = {
+        # If one type includes another, treat them as same
+        "40RE": "40RE",      # Base type
+        "40REHC": "40RE",    # 40REHC includes 40RE, so treat as same
+        "40HC": "40HC",
+        "40HCR": "40HC",     # 40HCR includes 40HC, so treat as same
+        "40HCRV": "40HC",    # 40HCRV includes 40HC, so treat as same
+        "20GP": "20GP",
+        "20RE": "20RE",
+        "20RF": "20RF",
+        "20FR": "20FR",
+        "45HC": "45HC",
+    }
+    
+    # Check for exact match first
+    if container_type in type_mappings:
+        return type_mappings[container_type]
+    
+    # Check if any base type is included in the current type
+    for base_type, normalized in type_mappings.items():
+        if base_type in container_type:
+            return normalized
+    
+    # If no mapping found, return the original type
+    return container_type
+
+def are_containers_equal(container_a, container_b):
+    """Check if two containers are considered equal after normalization"""
+    norm_a = normalize_container_comparison(container_a)
+    norm_b = normalize_container_comparison(container_b)
+    
+    # Compare container numbers (if both have them)
+    if norm_a["number"] and norm_b["number"]:
+        if norm_a["number"] != norm_b["number"]:
+            return False
+    
+    # Compare container types with inclusion logic
+    if norm_a["type"] and norm_b["type"]:
+        # If types are exactly the same
+        if norm_a["type"] == norm_b["type"]:
+            return True
+        # If one type includes the other, treat as same
+        if norm_a["type"] in norm_b["type"] or norm_b["type"] in norm_a["type"]:
+            return True
+        return False
+    
+    # If one has no type, compare what we have
+    return norm_a["display"] == norm_b["display"]
 
 # Get display value for any column
 def get_display_value(value, col_name):
@@ -80,12 +168,12 @@ def get_display_value(value, col_name):
     if col_name == "ETA":
         return format_eta_display(value)
     elif col_name == "Container":
-        container_info = extract_container_info(value)
+        container_info = normalize_container_comparison(value)
         return container_info["display"]
     else:
         return str(value)
 
-# Updated compare_rows function to properly handle empty values
+# Updated compare_rows function with improved container comparison
 def compare_rows(row_a, row_b, columns_to_compare):
     differences = {}
     
@@ -105,8 +193,8 @@ def compare_rows(row_a, row_b, columns_to_compare):
                 differences[col] = {"Excel A": display_a, "Excel B": display_b}
                 
         elif col == "Container":
-            # Consider it a difference if display values are different
-            if display_a != display_b:
+            # Use the improved container comparison logic
+            if not are_containers_equal(val_a, val_b):
                 differences[col] = {
                     "Excel A": display_a,
                     "Excel B": display_b
@@ -260,25 +348,6 @@ if file_a and file_b:
         po_set_b = set()
         for val in df_b_final["BC PO"]:
             po_set_b.update(extract_po_numbers(val))
-
-        # Show sample data from both files
-        st.subheader("📊 Sample Data Preview")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.write("Excel A Sample (3 rows):")
-            display_cols_a = ["Order #", "ETA"]
-            if "Container" in df_a_clean.columns:
-                display_cols_a.append("Container")
-            sample_a = df_a_clean[display_cols_a].head(3).copy()
-            sample_a["ETA"] = sample_a["ETA"].apply(format_eta_display)
-            st.dataframe(sample_a)
-        
-        with col2:
-            st.write("Excel B Sample (3 rows):")
-            sample_b = df_b_final[["BC PO", "ETA", "Container"]].head(3).copy()
-            sample_b["ETA"] = sample_b["ETA"].apply(format_eta_display)
-            st.dataframe(sample_b)
 
         matched_differences = []
         unmatched_pos = []
