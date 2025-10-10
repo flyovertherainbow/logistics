@@ -8,8 +8,8 @@ st.set_page_config(page_title="BURNARD SHIPMENT CHECK LIST", layout="wide")
 st.title("📦 BURNARD SHIPMENT CHECK LIST")
 
 # File upload
-file_a = st.file_uploader("Upload Excel A (Client Order Followup Status Summary Report)", type=["xlsx"], key="file_a")
-file_b = st.file_uploader("Upload Excel B (Import Doc)", type=["xlsx"], key="file_b")
+file_a = st.file_uploader("Upload Burnard (Client Order Followup Status Summary Report)", type=["xlsx"], key="file_a")
+file_b = st.file_uploader("Upload Import Doc (Import Doc)", type=["xlsx"], key="file_b")
 
 # Function to detect header row
 def detect_header_row(df, keywords):
@@ -190,27 +190,27 @@ def compare_rows(row_a, row_b, columns_to_compare):
             date_b = normalize_eta(val_b)
             # Consider it a difference if one has date and other doesn't, or dates are different
             if date_a != date_b:
-                differences[col] = {"Excel A": display_a, "Excel B": display_b}
+                differences[col] = {"Burnard Report": display_a, "Import Doc": display_b}
                 
         elif col == "Container":
             # Use the improved container comparison logic
             if not are_containers_equal(val_a, val_b):
                 differences[col] = {
-                    "Excel A": display_a,
-                    "Excel B": display_b
+                    "Burnard Report": display_a,
+                    "Import Doc": display_b
                 }
                 
         elif col == "Arrival Vessel":
             norm_a = normalize_vessel(val_a)
             norm_b = normalize_vessel(val_b)
             if norm_a != norm_b:
-                differences[col] = {"Excel A": display_a, "Excel B": display_b}
+                differences[col] = {"Burnard Report": display_a, "Import Doc": display_b}
                 
         elif col == "Arrival Voyage":
             norm_a = normalize_voyage(val_a)
             norm_b = normalize_voyage(val_b)
             if norm_a != norm_b:
-                differences[col] = {"Excel A": display_a, "Excel B": display_b}
+                differences[col] = {"Burnard Report": display_a, "Import Doc": display_b}
                 
         else:
             if str(val_a).strip() != str(val_b).strip():
