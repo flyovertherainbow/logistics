@@ -8,8 +8,8 @@ st.set_page_config(page_title="BURNARD SHIPMENT CHECK LIST", layout="wide")
 st.title("📦 BURNARD SHIPMENT CHECK LIST")
 
 # File upload
-file_a = st.file_uploader("Upload Burnard (Client Order Followup Status Summary Report)", type=["xlsx"], key="file_a")
-file_b = st.file_uploader("Upload Import Doc (Import Doc)", type=["xlsx"], key="file_b")
+file_a = st.file_uploader("Upload Excel A (Client Order Followup Status Summary Report)", type=["xlsx"], key="file_a")
+file_b = st.file_uploader("Upload Excel B (Import Doc)", type=["xlsx"], key="file_b")
 
 # Function to detect header row
 def detect_header_row(df, keywords):
@@ -47,24 +47,67 @@ def format_eta_display(eta_value):
         # Return original if can't parse
         return str(eta_value)
 
-# Normalize Arrival Vessel: remove all spaces and trim
-def normalize_vessel(val):
-    if pd.isna(val) or val == "" or val is None:
+# Enhanced Arrival Vessel Normalization
+def normalize_vessel(vessel_value):
+    """
+    Normalize vessel names for comparison:
+    - Convert to uppercase
+    - Remove extra spaces and special characters
+    - Standardize common vessel name variations
+    """
+    if pd.isna(vessel_value) or vessel_value == "" or vessel_value is None:
         return ""
-    return re.sub(r"\s+", "", str(val)).strip()
+    
+    vessel_str = str(vessel_value).strip()
+    
+    # Convert to uppercase for consistent comparison
+    vessel_str = vessel_str.upper()
+    
+    # Remove extra spaces, hyphens, and special characters
+    vessel_str = re.sub(r'[\s\-_]+', ' ', vessel_str)
+    vessel_str = vessel_str.strip()
+    
+    # Standardize common vessel prefixes/suffixes
+    vessel_str = re.sub(r'\bMV\s+', '', vessel_str)  # Remove MV prefix
+    vessel_str = re.sub(r'\bV\.\s*', '', vessel_str)  # Remove V. prefix
+    vessel_str = re.sub(r'\s+EXPRESS$', '', vessel_str)  # Remove EXPRESS suffix
+    vessel_str = re.sub(r'\s+SERVICE$', '', vessel_str)  # Remove SERVICE suffix
+    
+    # Handle common vessel name variations
+    vessel_replacements = {
+        'CMA CGM': 'CMACGM',
+        'MAERSK LINE': 'MAERSK',
+        'EVERGREEN LINE': 'EVERGREEN',
+        'COSCO SHIPPING': 'COSCO',
+        'HAPAG LLOYD': 'HAPAG-LLOYD',
+        'ONE LINE': 'ONE',
+        'OOCL LIMITED': 'OOCL',
+        'YANG MING': 'YANGMING',
+    }
+    
+    for old, new in vessel_replacements.items():
+        vessel_str = vessel_str.replace(old, new)
+    
+    return vessel_str
 
 # Normalize Arrival Voyage: remove leading 0 and trailing letters
-def normalize_voyage(val):
-    if pd.isna(val) or val == "" or val is None:
+def normalize_voyage(voyage_value):
+    if pd.isna(voyage_value) or voyage_value == "" or voyage_value is None:
         return ""
-    val = str(val).strip()
-    digits = re.findall(r"\d+", val)
-    if digits:
-        num = digits[0].lstrip("0")
-        return num
-    return ""
+    
+    voyage_str = str(voyage_value).strip().upper()
+    
+    # Extract voyage number (usually digits, sometimes with letters)
+    # Pattern: digits optionally followed by letters (e.g., "123E", "456W")
+    voyage_match = re.search(r'(\d+)[A-Z]*', voyage_str)
+    if voyage_match:
+        voyage_num = voyage_match.group(1)
+        # Remove leading zeros
+        return voyage_num.lstrip('0')
+    
+    return voyage_str
 
-# Improved container comparison logic
+# Enhanced Container Comparison Logic
 def normalize_container_comparison(container_value):
     if pd.isna(container_value) or container_value == "" or container_value is None:
         return {"number": "", "type": "", "display": ""}
@@ -72,7 +115,6 @@ def normalize_container_comparison(container_value):
     container_str = str(container_value).strip()
     
     # Extract container number and type
-    # Pattern for 4 letters + 7 digits followed by container type
     pattern = r'([A-Za-z]{4}\d{7})\s*[\(]?\s*([A-Za-z0-9]*)\s*[\)]?'
     match = re.search(pattern, container_str)
     
@@ -112,12 +154,11 @@ def normalize_container_type(container_type):
     
     # Handle common container type variations
     type_mappings = {
-        # If one type includes another, treat them as same
-        "40RE": "40RE",      # Base type
-        "40REHC": "40RE",    # 40REHC includes 40RE, so treat as same
+        "40RE": "40RE",
+        "40REHC": "40RE",
         "40HC": "40HC",
-        "40HCR": "40HC",     # 40HCR includes 40HC, so treat as same
-        "40HCRV": "40HC",    # 40HCRV includes 40HC, so treat as same
+        "40HCR": "40HC",
+        "40HCRV": "40HC",
         "20GP": "20GP",
         "20RE": "20RE",
         "20RF": "20RF",
@@ -134,7 +175,6 @@ def normalize_container_type(container_type):
         if base_type in container_type:
             return normalized
     
-    # If no mapping found, return the original type
     return container_type
 
 def are_containers_equal(container_a, container_b):
@@ -149,31 +189,15 @@ def are_containers_equal(container_a, container_b):
     
     # Compare container types with inclusion logic
     if norm_a["type"] and norm_b["type"]:
-        # If types are exactly the same
         if norm_a["type"] == norm_b["type"]:
             return True
-        # If one type includes the other, treat as same
         if norm_a["type"] in norm_b["type"] or norm_b["type"] in norm_a["type"]:
             return True
         return False
     
-    # If one has no type, compare what we have
     return norm_a["display"] == norm_b["display"]
 
-# Get display value for any column
-def get_display_value(value, col_name):
-    if pd.isna(value) or value == "" or value is None:
-        return ""
-    
-    if col_name == "ETA":
-        return format_eta_display(value)
-    elif col_name == "Container":
-        container_info = normalize_container_comparison(value)
-        return container_info["display"]
-    else:
-        return str(value)
-
-# Updated compare_rows function with improved container comparison
+# Enhanced Comparison Function with Vessel Comparison
 def compare_rows(row_a, row_b, columns_to_compare):
     differences = {}
     
@@ -181,61 +205,86 @@ def compare_rows(row_a, row_b, columns_to_compare):
         val_a = row_a.get(col, "")
         val_b = row_b.get(col, "")
 
-        # Get display values for both A and B
-        display_a = get_display_value(val_a, col)
-        display_b = get_display_value(val_b, col)
-
         if col == "ETA":
             date_a = normalize_eta(val_a)
             date_b = normalize_eta(val_b)
-            # Consider it a difference if one has date and other doesn't, or dates are different
             if date_a != date_b:
-                differences[col] = {"Excel A": display_a, "Excel B": display_b}
+                differences[col] = {
+                    "Excel A": format_eta_display(val_a),
+                    "Excel B": format_eta_display(val_b)
+                }
                 
         elif col == "Container":
-            # Use the improved container comparison logic
             if not are_containers_equal(val_a, val_b):
+                container_a_info = normalize_container_comparison(val_a)
+                container_b_info = normalize_container_comparison(val_b)
                 differences[col] = {
-                    "Excel A": display_a,
-                    "Excel B": display_b
+                    "Excel A": container_a_info["display"],
+                    "Excel B": container_b_info["display"]
                 }
                 
         elif col == "Arrival Vessel":
             norm_a = normalize_vessel(val_a)
             norm_b = normalize_vessel(val_b)
+            
+            # Check if vessels are different after normalization
             if norm_a != norm_b:
-                differences[col] = {"Excel A": display_a, "Excel B": display_b}
+                differences[col] = {
+                    "Excel A": str(val_a),
+                    "Excel B": str(val_b)
+                }
                 
         elif col == "Arrival Voyage":
             norm_a = normalize_voyage(val_a)
             norm_b = normalize_voyage(val_b)
             if norm_a != norm_b:
-                differences[col] = {"Excel A": display_a, "Excel B": display_b}
-                
-        else:
-            if str(val_a).strip() != str(val_b).strip():
-                differences[col] = {"Excel A": display_a, "Excel B": display_b}
+                differences[col] = {
+                    "Excel A": str(val_a),
+                    "Excel B": str(val_b)
+                }
     
     # Apply comparison behavior rules
     has_eta_diff = "ETA" in differences
     has_container_diff = "Container" in differences
+    has_vessel_diff = "Arrival Vessel" in differences
     
-    # Filter differences based on rules
+    # Enhanced filtering logic including vessel comparison
     filtered_differences = {}
     
-    if has_eta_diff and not has_container_diff:
+    if has_eta_diff and not has_container_diff and not has_vessel_diff:
         # Only ETA differences → show only ETA
         filtered_differences = {"ETA": differences["ETA"]}
-    elif has_container_diff and not has_eta_diff:
+    elif has_container_diff and not has_eta_diff and not has_vessel_diff:
         # Only Container differences → show only Container
         filtered_differences = {"Container": differences["Container"]}
+    elif has_vessel_diff and not has_eta_diff and not has_container_diff:
+        # Only Vessel differences → show only Vessel
+        filtered_differences = {"Arrival Vessel": differences["Arrival Vessel"]}
     elif has_eta_diff and has_container_diff:
-        # Both differ → show both ETA and Container
+        # Both ETA and Container differ → show both
         filtered_differences = {
             "ETA": differences["ETA"],
             "Container": differences["Container"]
         }
-    # If only Arrival Vessel/Voyage differences but no ETA/Container, show nothing
+    elif has_eta_diff and has_vessel_diff:
+        # ETA and Vessel differ → show both
+        filtered_differences = {
+            "ETA": differences["ETA"],
+            "Arrival Vessel": differences["Arrival Vessel"]
+        }
+    elif has_container_diff and has_vessel_diff:
+        # Container and Vessel differ → show both
+        filtered_differences = {
+            "Container": differences["Container"],
+            "Arrival Vessel": differences["Arrival Vessel"]
+        }
+    elif has_eta_diff and has_container_diff and has_vessel_diff:
+        # All three differ → show all
+        filtered_differences = {
+            "ETA": differences["ETA"],
+            "Container": differences["Container"],
+            "Arrival Vessel": differences["Arrival Vessel"]
+        }
     
     return filtered_differences
 
@@ -277,7 +326,7 @@ if file_a and file_b:
 
     # Show original Excel B columns
     existing_columns = df_b.columns.tolist()
-    #st.write("📋 Original Excel B Columns:", existing_columns)
+    st.write("📋 Original Excel B Columns:", existing_columns)
 
     # Create a new DataFrame with properly mapped columns (avoid duplicates)
     df_b_final = pd.DataFrame()
@@ -312,12 +361,12 @@ if file_a and file_b:
                 df_b_final["Supplier"] = df_b[col]
                 mapped_columns.append(f"'{col}' → 'Supplier'")
 
-    #st.success("✅ Column Mapping Completed:")
-    #for mapping in mapped_columns:
-        #st.write(f"   - {mapping}")
+    st.success("✅ Column Mapping Completed:")
+    for mapping in mapped_columns:
+        st.write(f"   - {mapping}")
 
     # Check if we have the required columns
-    required_columns = ["BC PO", "ETA", "Container"]
+    required_columns = ["BC PO", "ETA", "Container", "Arrival Vessel"]
     missing_columns = [col for col in required_columns if col not in df_b_final.columns]
     
     if missing_columns:
@@ -349,10 +398,34 @@ if file_a and file_b:
         for val in df_b_final["BC PO"]:
             po_set_b.update(extract_po_numbers(val))
 
+        # Show sample data from both files
+        st.subheader("📊 Sample Data Preview")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("Excel A Sample (3 rows):")
+            display_cols_a = ["Order #", "ETA"]
+            if "Container" in df_a_clean.columns:
+                display_cols_a.append("Container")
+            if "Arrival Vessel" in df_a_clean.columns:
+                display_cols_a.append("Arrival Vessel")
+            sample_a = df_a_clean[display_cols_a].head(3).copy()
+            sample_a["ETA"] = sample_a["ETA"].apply(format_eta_display)
+            st.dataframe(sample_a)
+        
+        with col2:
+            st.write("Excel B Sample (3 rows):")
+            display_cols_b = ["BC PO", "ETA", "Container"]
+            if "Arrival Vessel" in df_b_final.columns:
+                display_cols_b.append("Arrival Vessel")
+            sample_b = df_b_final[display_cols_b].head(3).copy()
+            sample_b["ETA"] = sample_b["ETA"].apply(format_eta_display)
+            st.dataframe(sample_b)
+
         matched_differences = []
         unmatched_pos = []
 
-        columns_to_compare = ["ETA", "Container"]
+        columns_to_compare = ["ETA", "Container", "Arrival Vessel", "Arrival Voyage"]
 
         for po, row_a in po_map_a.items():
             if po in po_set_b:
@@ -373,37 +446,45 @@ if file_a and file_b:
             for item in matched_differences:
                 st.markdown(f"<b>PO:</b> <code>{item['PO']}</code>", unsafe_allow_html=True)
                 
-                # Check what differences we have
-                has_eta = "ETA" in item["Differences"]
-                has_container = "Container" in item["Differences"]
-                
-                # Display according to rules
-                if has_eta:
-                    diff = item["Differences"]["ETA"]
-                    st.markdown(
-                        f"<span style='color:darkred'><b>ETA</b></span>: "
-                        f"<span style='color:blue'><b>Burnard Report</b></span> = <span style='color:green'>'{diff['Excel A']}'</span>, "
-                        f"<span style='color:blue'><b>Import Doc</b></span> = <span style='color:orange'>'{diff['Excel B']}'</span>",
-                        unsafe_allow_html=True
-                    )
-                
-                if has_container:
-                    diff = item["Differences"]["Container"]
-                    st.markdown(
-                        f"<span style='color:darkred'><b>Container</b></span>: "
-                        f"<span style='color:blue'><b>Burnard Report</b></span> = <span style='color:green'>'{diff['Excel A']}'</span>, "
-                        f"<span style='color:blue'><b>Import Doc</b></span> = <span style='color:orange'>'{diff['Excel B']}'</span>",
-                        unsafe_allow_html=True
-                    )
+                # Display all differences found
+                for col, diff in item["Differences"].items():
+                    if col == "ETA":
+                        st.markdown(
+                            f"<span style='color:darkred'><b>ETA</b></span>: "
+                            f"<span style='color:blue'><b>Excel A</b></span> = <span style='color:green'>'{diff['Excel A']}'</span>, "
+                            f"<span style='color:blue'><b>Excel B</b></span> = <span style='color:orange'>'{diff['Excel B']}'</span>",
+                            unsafe_allow_html=True
+                        )
+                    elif col == "Container":
+                        st.markdown(
+                            f"<span style='color:darkred'><b>Container</b></span>: "
+                            f"<span style='color:blue'><b>Excel A</b></span> = <span style='color:green'>'{diff['Excel A']}'</span>, "
+                            f"<span style='color:blue'><b>Excel B</b></span> = <span style='color:orange'>'{diff['Excel B']}'</span>",
+                            unsafe_allow_html=True
+                        )
+                    elif col == "Arrival Vessel":
+                        st.markdown(
+                            f"<span style='color:darkred'><b>Arrival Vessel</b></span>: "
+                            f"<span style='color:blue'><b>Excel A</b></span> = <span style='color:green'>'{diff['Excel A']}'</span>, "
+                            f"<span style='color:blue'><b>Excel B</b></span> = <span style='color:orange'>'{diff['Excel B']}'</span>",
+                            unsafe_allow_html=True
+                        )
+                    elif col == "Arrival Voyage":
+                        st.markdown(
+                            f"<span style='color:darkred'><b>Arrival Voyage</b></span>: "
+                            f"<span style='color:blue'><b>Excel A</b></span> = <span style='color:green'>'{diff['Excel A']}'</span>, "
+                            f"<span style='color:blue'><b>Excel B</b></span> = <span style='color:orange'>'{diff['Excel B']}'</span>",
+                            unsafe_allow_html=True
+                        )
                 st.write("---")
         else:
             st.write("No differences found in matched POs.")
 
-        st.subheader("❌ Unmatched PO Numbers from Burnard Report")
+        st.subheader("❌ Unmatched PO Numbers from Excel A")
         if unmatched_pos:
             st.write(unmatched_pos)
         else:
-            st.write("All PO numbers from Burnard Report matched with Import Doc.")
+            st.write("All PO numbers from Excel A matched with Excel B.")
 
         # Export buttons
         export_matched = []
