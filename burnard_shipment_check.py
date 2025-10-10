@@ -187,17 +187,54 @@ if file_a and file_b:
         df_b = pd.read_excel(file_b, sheet_name=last_sheet, engine="openpyxl")
         st.info(f"Using the last sheet: {last_sheet}")
 
+    # DEBUG: Show Excel B columns and first few rows
+    st.subheader("🔍 Debug Info - Excel B Structure")
+    st.write("Excel B Columns:", df_b.columns.tolist())
+    st.write("Excel B First 3 Rows:")
+    st.dataframe(df_b.head(3))
+
     # Remove columns before "Supplier" in Excel B but preserve required columns
     required_columns = ["BC PO", "Supplier", "ETA", "Container", "Arrival Vessel", "Arrival Voyage"]
     existing_columns = df_b.columns.tolist()
 
-    if "Supplier" in existing_columns:
-        supplier_index = existing_columns.index("Supplier")
-        preserved = [col for col in existing_columns[supplier_index:] if col in required_columns]
-        preserved += [col for col in existing_columns[:supplier_index] if col in required_columns]
-        df_b = df_b[preserved]
+    # Find the actual column names (case-insensitive and with possible spaces)
+    actual_columns_map = {}
+    for col in existing_columns:
+        clean_col = str(col).strip().lower().replace(" ", "")
+        actual_columns_map[clean_col] = col
+
+    # Map required columns to actual column names
+    mapped_columns = []
+    for req_col in required_columns:
+        clean_req = req_col.lower().replace(" ", "")
+        if clean_req in actual_columns_map:
+            mapped_columns.append(actual_columns_map[clean_req])
+        else:
+            st.warning(f"Column '{req_col}' not found in Excel B. Available columns: {existing_columns}")
+
+    if len(mapped_columns) == len(required_columns):
+        df_b = df_b[mapped_columns]
+        # Rename columns to standard names for easier processing
+        column_rename = {}
+        for actual_col in mapped_columns:
+            clean_actual = str(actual_col).strip().lower().replace(" ", "")
+            if clean_actual == "bcpo":
+                column_rename[actual_col] = "BC PO"
+            elif clean_actual == "eta":
+                column_rename[actual_col] = "ETA"
+            elif clean_actual == "container":
+                column_rename[actual_col] = "Container"
+            elif clean_actual == "arrivalvessel":
+                column_rename[actual_col] = "Arrival Vessel"
+            elif clean_actual == "arrivalvoyage":
+                column_rename[actual_col] = "Arrival Voyage"
+            elif clean_actual == "supplier":
+                column_rename[actual_col] = "Supplier"
+        
+        df_b = df_b.rename(columns=column_rename)
+        st.success("✅ Successfully mapped all required columns in Excel B")
     else:
-        st.error("Column 'Supplier' not found in Excel B.")
+        st.error(f"Could not find all required columns in Excel B. Found: {mapped_columns}")
 
     # Detect header row in Excel A
     header_keywords = ["Order #", "Supplier"]
@@ -207,6 +244,11 @@ if file_a and file_b:
         st.error("Could not detect header row in Excel A.")
     else:
         df_a = pd.read_excel(file_a, sheet_name=0, header=header_row_index, engine="openpyxl")
+
+        # DEBUG: Show Excel A columns and first few rows
+        st.write("Excel A Columns:", df_a.columns.tolist())
+        st.write("Excel A First 3 Rows:")
+        st.dataframe(df_a.head(3))
 
         # Clean Excel A: remove rows with invalid ETA
         df_a["ETA"] = pd.to_datetime(df_a["ETA"], errors="coerce")
@@ -227,6 +269,13 @@ if file_a and file_b:
         else:
             st.error("Column 'BC PO' not found in Excel B.")
 
+        # DEBUG: Show sample data from Excel B
+        st.write("Sample Excel B data (first 5 rows):")
+        debug_sample = df_b[["BC PO", "ETA", "Container"]].head(5).copy()
+        debug_sample["ETA_debug"] = debug_sample["ETA"].apply(lambda x: f"'{x}' (type: {type(x).__name__})")
+        debug_sample["Container_debug"] = debug_sample["Container"].apply(lambda x: f"'{x}' (type: {type(x).__name__})")
+        st.dataframe(debug_sample)
+
         matched_differences = []
         unmatched_pos = []
 
@@ -237,6 +286,12 @@ if file_a and file_b:
                 match_rows_b = df_b[df_b["BC PO"].astype(str).str.contains(po)]
                 if not match_rows_b.empty:
                     row_b = match_rows_b.iloc[0]
+                    
+                    # DEBUG: Show what we're comparing for this PO
+                    st.write(f"DEBUG PO {po}:")
+                    st.write(f"  Excel A - ETA: '{row_a.get('ETA', '')}', Container: '{row_a.get('Container', '')}'")
+                    st.write(f"  Excel B - ETA: '{row_b.get('ETA', '')}', Container: '{row_b.get('Container', '')}'")
+                    
                     differences = compare_rows(row_a, row_b, columns_to_compare)
                     if differences:
                         matched_differences.append({"PO": po, "Differences": differences})
