@@ -382,8 +382,8 @@ if file_a and file_b:
                     diff = item["Differences"]["ETA"]
                     st.markdown(
                         f"<span style='color:darkred'><b>ETA</b></span>: "
-                        f"<span style='color:blue'><b>Excel A</b></span> = <span style='color:green'>'{diff['Excel A']}'</span>, "
-                        f"<span style='color:blue'><b>Excel B</b></span> = <span style='color:orange'>'{diff['Excel B']}'</span>",
+                        f"<span style='color:blue'><b>Burnard Report</b></span> = <span style='color:green'>'{diff['Excel A']}'</span>, "
+                        f"<span style='color:blue'><b>Import Doc</b></span> = <span style='color:orange'>'{diff['Excel B']}'</span>",
                         unsafe_allow_html=True
                     )
                 
@@ -391,19 +391,19 @@ if file_a and file_b:
                     diff = item["Differences"]["Container"]
                     st.markdown(
                         f"<span style='color:darkred'><b>Container</b></span>: "
-                        f"<span style='color:blue'><b>Excel A</b></span> = <span style='color:green'>'{diff['Excel A']}'</span>, "
-                        f"<span style='color:blue'><b>Excel B</b></span> = <span style='color:orange'>'{diff['Excel B']}'</span>",
+                        f"<span style='color:blue'><b>Burnard Report</b></span> = <span style='color:green'>'{diff['Excel A']}'</span>, "
+                        f"<span style='color:blue'><b>Import Doc</b></span> = <span style='color:orange'>'{diff['Excel B']}'</span>",
                         unsafe_allow_html=True
                     )
                 st.write("---")
         else:
             st.write("No differences found in matched POs.")
 
-        st.subheader("❌ Unmatched PO Numbers from Excel A")
+        st.subheader("❌ Unmatched PO Numbers from Burnard Report")
         if unmatched_pos:
             st.write(unmatched_pos)
         else:
-            st.write("All PO numbers from Excel A matched with Excel B.")
+            st.write("All PO numbers from Burnard Report matched with Import Doc.")
 
         # Export buttons
         export_matched = []
