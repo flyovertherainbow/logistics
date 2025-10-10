@@ -187,44 +187,54 @@ if file_a and file_b:
         df_b = pd.read_excel(file_b, sheet_name=last_sheet, engine="openpyxl")
         st.info(f"Using the last sheet: {last_sheet}")
 
-    # Map Excel B column names to standard names
+    # Show original Excel B columns
     existing_columns = df_b.columns.tolist()
-    st.write("📋 Excel B Columns Found:", existing_columns)
+    st.write("📋 Original Excel B Columns:", existing_columns)
 
-    # Create mapping for Excel B columns
-    column_mapping = {}
+    # Create a new DataFrame with properly mapped columns (avoid duplicates)
+    df_b_final = pd.DataFrame()
+    mapped_columns = []
     
-    # Find and map each required column
+    # Map each column individually to avoid duplicates
     for col in existing_columns:
         col_lower = str(col).lower().strip()
         
-        if 'bc po' in col_lower or 'bcpo' in col_lower or 'po' in col_lower:
-            column_mapping[col] = "BC PO"
+        if 'bc po' in col_lower or 'bcpo' in col_lower or ('po' in col_lower and 'bc' in col_lower):
+            if "BC PO" not in df_b_final.columns:
+                df_b_final["BC PO"] = df_b[col]
+                mapped_columns.append(f"'{col}' → 'BC PO'")
         elif 'estimated arrival' in col_lower or 'eta' in col_lower:
-            column_mapping[col] = "ETA"
+            if "ETA" not in df_b_final.columns:
+                df_b_final["ETA"] = df_b[col]
+                mapped_columns.append(f"'{col}' → 'ETA'")
         elif 'container' in col_lower:
-            column_mapping[col] = "Container"
-        elif 'arrival vessel' in col_lower or 'vessel' in col_lower:
-            column_mapping[col] = "Arrival Vessel"
-        elif 'arrival voyage' in col_lower or 'voyage' in col_lower:
-            column_mapping[col] = "Arrival Voyage"
+            if "Container" not in df_b_final.columns:
+                df_b_final["Container"] = df_b[col]
+                mapped_columns.append(f"'{col}' → 'Container'")
+        elif 'arrival vessel' in col_lower or ('vessel' in col_lower and 'arrival' in col_lower):
+            if "Arrival Vessel" not in df_b_final.columns:
+                df_b_final["Arrival Vessel"] = df_b[col]
+                mapped_columns.append(f"'{col}' → 'Arrival Vessel'")
+        elif 'arrival voyage' in col_lower or ('voyage' in col_lower and 'arrival' in col_lower):
+            if "Arrival Voyage" not in df_b_final.columns:
+                df_b_final["Arrival Voyage"] = df_b[col]
+                mapped_columns.append(f"'{col}' → 'Arrival Voyage'")
         elif 'supplier' in col_lower:
-            column_mapping[col] = "Supplier"
+            if "Supplier" not in df_b_final.columns:
+                df_b_final["Supplier"] = df_b[col]
+                mapped_columns.append(f"'{col}' → 'Supplier'")
 
-    # Rename columns in Excel B
-    df_b_renamed = df_b.rename(columns=column_mapping)
+    st.success("✅ Column Mapping Completed:")
+    for mapping in mapped_columns:
+        st.write(f"   - {mapping}")
+
+    # Check if we have the required columns
+    required_columns = ["BC PO", "ETA", "Container"]
+    missing_columns = [col for col in required_columns if col not in df_b_final.columns]
     
-    # Select only the columns we need
-    required_columns = ["BC PO", "Supplier", "ETA", "Container", "Arrival Vessel", "Arrival Voyage"]
-    available_columns = [col for col in required_columns if col in df_b_renamed.columns]
-    
-    if not available_columns:
-        st.error("No required columns found in Excel B after mapping.")
+    if missing_columns:
+        st.error(f"Missing required columns in Excel B: {missing_columns}")
         st.stop()
-    
-    df_b_final = df_b_renamed[available_columns]
-    
-    st.success(f"✅ Successfully mapped Excel B columns: {available_columns}")
 
     # Detect header row in Excel A
     header_keywords = ["Order #", "Supplier"]
@@ -248,11 +258,8 @@ if file_a and file_b:
 
         # Extract PO numbers from Excel B
         po_set_b = set()
-        if "BC PO" in df_b_final.columns:
-            for val in df_b_final["BC PO"]:
-                po_set_b.update(extract_po_numbers(val))
-        else:
-            st.error("Column 'BC PO' not found in Excel B after mapping.")
+        for val in df_b_final["BC PO"]:
+            po_set_b.update(extract_po_numbers(val))
 
         # Show sample data from both files
         st.subheader("📊 Sample Data Preview")
@@ -260,16 +267,23 @@ if file_a and file_b:
         
         with col1:
             st.write("Excel A Sample (3 rows):")
-            st.dataframe(df_a_clean[["Order #", "ETA", "Container"]].head(3) if "Container" in df_a_clean.columns else df_a_clean[["Order #", "ETA"]].head(3))
+            display_cols_a = ["Order #", "ETA"]
+            if "Container" in df_a_clean.columns:
+                display_cols_a.append("Container")
+            sample_a = df_a_clean[display_cols_a].head(3).copy()
+            sample_a["ETA"] = sample_a["ETA"].apply(format_eta_display)
+            st.dataframe(sample_a)
         
         with col2:
             st.write("Excel B Sample (3 rows):")
-            st.dataframe(df_b_final.head(3))
+            sample_b = df_b_final[["BC PO", "ETA", "Container"]].head(3).copy()
+            sample_b["ETA"] = sample_b["ETA"].apply(format_eta_display)
+            st.dataframe(sample_b)
 
         matched_differences = []
         unmatched_pos = []
 
-        columns_to_compare = ["ETA", "Container", "Arrival Vessel", "Arrival Voyage"]
+        columns_to_compare = ["ETA", "Container"]
 
         for po, row_a in po_map_a.items():
             if po in po_set_b:
