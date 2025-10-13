@@ -2,7 +2,8 @@ import streamlit as st
 import pandas as pd
 import re
 from datetime import datetime
-
+# Excel A: DHL report
+# Excel B: import doc
 st.title("DHL Shipment Report Updater")
 
 st.write("""
