@@ -88,11 +88,11 @@ if excel_a and excel_b:
     po_counts = df_a_expanded['Extracted PO'].value_counts()
     duplicates = po_counts[po_counts > 1]
 
-    st.header("PO Numbers Appearing More Than Once in Excel-A")
+    st.header("PO Numbers Appearing More Than Once in DHL report")
     if not duplicates.empty:
         st.write(duplicates)
     else:
-        st.write("No duplicate PO numbers found in Excel-A.")
+        st.write("No duplicate PO numbers found in DHL report.")
 
     # BC PO numbers in Excel B (ensure string type)
     df_b['BC PO'] = df_b['BC PO'].astype(str)
@@ -152,11 +152,11 @@ if excel_a and excel_b:
     else:
         st.write("No matched PO numbers found.")
 
-    st.header("Unmatched PO Numbers in Excel A")
+    st.header("Unmatched PO Numbers in DHL Report")
     if not unmatched.empty:
         st.write(unmatched['Extracted PO'].unique())
     else:
-        st.write("All PO numbers from Excel A were found in Excel B.")
+        st.write("All PO numbers from Excel A were found in Import Doc.")
 
     st.header("Downloadable Results")
     result = pd.DataFrame({
