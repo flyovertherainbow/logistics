@@ -2,7 +2,7 @@ import streamlit as st
 
 # 设置页面配置
 st.set_page_config(
-    page_title="货运检查主页",
+    page_title="IMPORT DOC UPDATER",
     page_icon="📦",
     layout="centered"
 )
