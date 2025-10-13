@@ -473,45 +473,70 @@ if file_a and file_b:
                 unmatched_pos.append(po)
 
         # Display results
-        st.subheader("🔍 Matched PO Differences")
-        if matched_differences:
-            for item in matched_differences:
-                st.markdown(f"<b>PO:</b> <code>{item['PO']}</code>", unsafe_allow_html=True)
-                
-                # Display all differences found
-                for col, diff in item["Differences"].items():
-                    if col == "ETA":
-                        st.markdown(
-                            f"<span style='color:darkred'><b>ETA</b></span>: "
-                            f"<span style='color:blue'><b>Excel A</b></span> = <span style='color:green'>'{diff['Excel A']}'</span>, "
-                            f"<span style='color:blue'><b>Excel B</b></span> = <span style='color:orange'>'{diff['Excel B']}'</span>",
-                            unsafe_allow_html=True
-                        )
-                    elif col == "Container":
-                        st.markdown(
-                            f"<span style='color:darkred'><b>Container</b></span>: "
-                            f"<span style='color:blue'><b>Excel A</b></span> = <span style='color:green'>'{diff['Excel A']}'</span>, "
-                            f"<span style='color:blue'><b>Excel B</b></span> = <span style='color:orange'>'{diff['Excel B']}'</span>",
-                            unsafe_allow_html=True
-                        )
-                    elif col == "Arrival Vessel":
-                        st.markdown(
-                            f"<span style='color:darkred'><b>Arrival Vessel</b></span>: "
-                            f"<span style='color:blue'><b>Excel A</b></span> = <span style='color:green'>'{diff['Excel A']}'</span>, "
-                            f"<span style='color:blue'><b>Excel B</b></span> = <span style='color:orange'>'{diff['Excel B']}'</span>",
-                            unsafe_allow_html=True
-                        )
-                    elif col == "Arrival Voyage":
-                        st.markdown(
-                            f"<span style='color:darkred'><b>Arrival Voyage</b></span>: "
-                            f"<span style='color:blue'><b>Excel A</b></span> = <span style='color:green'>'{diff['Excel A']}'</span>, "
-                            f"<span style='color:blue'><b>Excel B</b></span> = <span style='color:orange'>'{diff['Excel B']}'</span>",
-                            unsafe_allow_html=True
-                        )
-                st.write("---")
-        else:
-            st.write("No differences found in matched POs.")
+        # --- START NEW CATEGORIZATION LOGIC ---
 
+        # Structure to hold differences categorized by column
+        categorized_differences = {
+            "ETA": [],
+            "Container": [],
+            "Arrival Vessel": [],
+            "Arrival Voyage": []
+        }
+        
+        # 1. Loop through all POs that had differences
+        for item in matched_differences:
+            po_number = item["PO Number"]
+            
+            # 2. Loop through the differences found for that PO
+            for col, diff in item["Differences"].items():
+                # Only process the columns we want to categorize
+                if col in categorized_differences:
+                    # Create a clean item for display
+                    diff_item = {
+                        "PO Number": po_number,
+                        "Excel A Value": diff['Excel A'],
+                        "Excel B Value": diff['Excel B']
+                    }
+                    categorized_differences[col].append(diff_item)
+        
+        # --- END NEW CATEGORIZATION LOGIC ---
+        # --- START NEW DISPLAY LOGIC ---
+
+        st.subheader("🔍 Categorized PO Differences")
+        
+        # Define the logical display order
+        display_order = ["ETA", "Container", "Arrival Vessel", "Arrival Voyage"]
+        found_differences = False
+        
+        for category in display_order:
+            diff_list = categorized_differences[category]
+            
+            if diff_list:
+                found_differences = True
+                
+                # Use HTML for a strong, visible category header
+                st.markdown(f"#### 🛑 Differences in {category}", unsafe_allow_html=True)
+                
+                for diff_item in diff_list:
+                    po = diff_item["PO Number"]
+                    val_a = diff_item["Excel A Value"]
+                    val_b = diff_item["Excel B Value"]
+                    
+                    # Format the output for a single difference (using your styled HTML)
+                    st.markdown(
+                        f"**PO {po}**: "
+                        f"<span style='color:blue'><b>Excel A</b></span> = <span style='color:green'>'{val_a}'</span>, "
+                        f"<span style='color:blue'><b>Excel B</b></span> = <span style='color:orange'>'{val_b}'</span>",
+                        unsafe_allow_html=True
+                    )
+                
+                # Add a clear separator between categories
+                st.markdown("---")
+        
+        if not found_differences:
+            st.info("✅ No PO differences found across ETA, Container, Arrival Vessel, or Arrival Voyage in matched records.")
+        
+        # --- END NEW DISPLAY LOGIC ---
         st.subheader("❌ Unmatched PO Numbers from Excel A")
         if unmatched_pos:
             st.write(unmatched_pos)
