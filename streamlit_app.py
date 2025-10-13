@@ -11,7 +11,7 @@ st.set_page_config(
 st.title("📦 IMPORT DOC UPDATE TOLL")
 
 # 简要说明
-st.markdown("SELECT FORWARDER FROM THE SIDE MENU")
+#st.markdown("SELECT FORWARDER FROM THE SIDE MENU")
 
 # 使用 sidebar 导航
 with st.sidebar:
