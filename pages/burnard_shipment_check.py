@@ -178,51 +178,56 @@ def normalize_container_type(container_type):
     return container_type
 
 def are_containers_equal(container_a, container_b):
-    """Check if two containers are considered equal after normalization."""
+    """
+    Checks container equality based on the user's specific business logic:
+    1. If one has a full 11-digit number and the other does not, they are DIFFERENT.
+    2. If BOTH have a full 11-digit number, they are considered the SAME.
+    3. If NEITHER has a number, comparison falls back to container type.
+    """
+    # NOTE: The helper function normalize_container_comparison must be called first
+    # to reliably extract the 'number' and 'type' components.
+    
     norm_a = normalize_container_comparison(container_a)
     norm_b = normalize_container_comparison(container_b)
 
-    # 1. Compare Container Numbers (full 11-digit code)
     num_a = norm_a["number"]
     num_b = norm_b["number"]
-
-    # Rule 1: If both have numbers, they must match.
-    if num_a and num_b:
-        if num_a != num_b:
-            return False # Numbers are different
-            
-    # Rule 2: If only one has a number, they are different.
-    elif (num_a and not num_b) or (not num_a and num_b):
-        return False # One is missing the number
-
-    # 2. Compare Container Types
     type_a = norm_a["type"]
     type_b = norm_b["type"]
 
-    # If types are different, they are definitely not equal.
-    # Note: The original logic allowed partial matches (e.g., '40HC' in '40HCR').
-    # We will stick to the strict 'display' comparison if the types don't exactly match
-    # after normalization, to catch any remaining display difference.
+    # --- 1. & 2. Number Presence Check (User's Custom Logic) ---
 
-    # If types are present and not equal (even after the inclusion rule), they are different
+    # Rule: Both have a number (4 letters + 7 digits)
+    if num_a and num_b:
+        # User requirement: "both side have container number then do not do comparation."
+        # This means they are considered equal for the purpose of difference reporting.
+        return True
+
+    # Rule: Only one side has a container number
+    # (A has number AND B does NOT) OR (A does NOT have number AND B has number)
+    if (num_a and not num_b) or (not num_a and num_b):
+        # They are different because one has the specific number and the other is missing it.
+        return False
+
+    # --- 3. No numbers found on EITHER side (Both empty/type only) ---
+
+    # Rule: Check if the container types (e.g., "20GP") are the same.
     if type_a and type_b:
         if type_a == type_b:
-             # If numbers matched (or were both missing) and types match, they are equal.
+            return True
+        # Keep original logic for near-matches (e.g., '40HC' vs '40HCR')
+        if type_a in type_b or type_b in type_a:
              return True
-        # Original complex type inclusion logic (optional, can be simplified for strict check)
-        if norm_a["type"] in norm_b["type"] or norm_b["type"] in norm_a["type"]:
-             return True
-        return False # Types are different
+        
+        # Types are present but different
+        return False
 
-    # Rule 3: Fallback to Display Comparison (handles cases where numbers/types are missing)
-    # This is a final safety check, but the number/type check above is more robust.
-    # It checks if the fully normalized display strings are the same.
-    # Since we already handled the number logic, let's focus on the type/display difference.
-    
-    # If the comparison reaches here, either both numbers matched (or were missing), 
-    # and one or both types were empty. We rely on the raw display value for a final check.
-    
-    return norm_a["display"] == norm_b["display"]
+    # Rule: Check if one has a type and the other is empty (e.g., A="20GP", B="")
+    if (type_a and not type_b) or (not type_a and type_b):
+        return False
+        
+    # Rule: Both are completely empty. Treat as SAME.
+    return True
 
 # Enhanced Comparison Function with Vessel Comparison
 def compare_rows(row_a, row_b, columns_to_compare):
