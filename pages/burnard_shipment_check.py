@@ -178,22 +178,49 @@ def normalize_container_type(container_type):
     return container_type
 
 def are_containers_equal(container_a, container_b):
-    """Check if two containers are considered equal after normalization"""
+    """Check if two containers are considered equal after normalization."""
     norm_a = normalize_container_comparison(container_a)
     norm_b = normalize_container_comparison(container_b)
-    
-    # Compare container numbers (if both have them)
-    if norm_a["number"] and norm_b["number"]:
-        if norm_a["number"] != norm_b["number"]:
-            return False
-    
-    # Compare container types with inclusion logic
-    if norm_a["type"] and norm_b["type"]:
-        if norm_a["type"] == norm_b["type"]:
-            return True
+
+    # 1. Compare Container Numbers (full 11-digit code)
+    num_a = norm_a["number"]
+    num_b = norm_b["number"]
+
+    # Rule 1: If both have numbers, they must match.
+    if num_a and num_b:
+        if num_a != num_b:
+            return False # Numbers are different
+            
+    # Rule 2: If only one has a number, they are different.
+    elif (num_a and not num_b) or (not num_a and num_b):
+        return False # One is missing the number
+
+    # 2. Compare Container Types
+    type_a = norm_a["type"]
+    type_b = norm_b["type"]
+
+    # If types are different, they are definitely not equal.
+    # Note: The original logic allowed partial matches (e.g., '40HC' in '40HCR').
+    # We will stick to the strict 'display' comparison if the types don't exactly match
+    # after normalization, to catch any remaining display difference.
+
+    # If types are present and not equal (even after the inclusion rule), they are different
+    if type_a and type_b:
+        if type_a == type_b:
+             # If numbers matched (or were both missing) and types match, they are equal.
+             return True
+        # Original complex type inclusion logic (optional, can be simplified for strict check)
         if norm_a["type"] in norm_b["type"] or norm_b["type"] in norm_a["type"]:
-            return True
-        return False
+             return True
+        return False # Types are different
+
+    # Rule 3: Fallback to Display Comparison (handles cases where numbers/types are missing)
+    # This is a final safety check, but the number/type check above is more robust.
+    # It checks if the fully normalized display strings are the same.
+    # Since we already handled the number logic, let's focus on the type/display difference.
+    
+    # If the comparison reaches here, either both numbers matched (or were missing), 
+    # and one or both types were empty. We rely on the raw display value for a final check.
     
     return norm_a["display"] == norm_b["display"]
 
