@@ -6,16 +6,16 @@ from datetime import datetime
 st.title("DHL Shipment Report Updater")
 
 st.write("""
-Upload your ECLY Shipment Level Report (Excel A) and Import Doc (Excel B).
+Upload your DHL Shipment Level Report and Import Doc.
 This app will:
-- Clean data in Excel A (removes rows with missing or invalid Estimated Arrival).
-- Extract all PO numbers (including ranges and variants) from All References in Excel A.
+- Clean data in DHL report (removes rows with missing or invalid Estimated Arrival).
+- Extract all PO numbers (including ranges and variants) from All References in DHL report.
 - Compare to BC PO numbers in Excel B, showing matches and unmatched POs.
-- Highlight POs that appear more than once in Excel A.
+- Highlight POs that appear more than once in DHL repot.
 """)
 
-excel_a = st.file_uploader("Upload ECLY Shipment Level Report (Excel A)", type=["xlsx"])
-excel_b = st.file_uploader("Upload Import Doc (Excel B)", type=["xlsx"])
+excel_a = st.file_uploader("Upload DHL Shipment Report", type=["xlsx"])
+excel_b = st.file_uploader("Upload Import Doc", type=["xlsx"])
 
 def extract_po_numbers(ref_str):
     if not isinstance(ref_str, str):
