@@ -177,7 +177,7 @@ def normalize_container_type(container_type):
     
     return container_type
 
-    def are_containers_equal(container_a, container_b):
+def are_containers_equal(container_a, container_b):
         """
         Checks container equality:
         1. If both have numbers, they must match, otherwise report a difference.
@@ -222,7 +222,7 @@ def normalize_container_type(container_type):
             return True
     
         # If the logic falls through, they are different (e.g., one had a type, the other was empty)
-        return False
+        return False    
 
 # Enhanced Comparison Function with Vessel Comparison
 def compare_rows(row_a, row_b, columns_to_compare):
