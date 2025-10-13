@@ -14,7 +14,7 @@ col1, col2 = st.columns(2)
 
 with col1:
     if st.button("Burnard Shipment Check"):
-        st.markdown("[ Burnard Shipment Check, unsafe_allow_html=True)
+        st.markdown("[ Burnard Shipment Check", unsafe_allow_html=True)
 
 with col2:
     if st.button("DHL Shipment Check"):
