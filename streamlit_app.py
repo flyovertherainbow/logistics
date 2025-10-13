@@ -8,7 +8,7 @@ st.set_page_config(
 )
 
 # 页面标题
-st.title("📦 IMPORT DOC UPDATE TOLL")
+st.title("📦 IMPORT DOC UPDATE TOOL")
 
 # 简要说明
 #st.markdown("SELECT FORWARDER FROM THE SIDE MENU")
