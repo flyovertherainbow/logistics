@@ -11,7 +11,7 @@ Upload your DHL Shipment Level Report and Import Doc.
 This app will:
 - Clean data in DHL report (removes rows with missing or invalid Estimated Arrival).
 - Extract all PO numbers (including ranges and variants) from All References in DHL report.
-- Compare to BC PO numbers in Excel B, showing matches and unmatched POs.
+- Compare to BC PO numbers in import doc, showing matches and unmatched POs.
 - Highlight POs that appear more than once in DHL repot.
 """)
 
