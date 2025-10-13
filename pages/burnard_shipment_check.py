@@ -177,57 +177,52 @@ def normalize_container_type(container_type):
     
     return container_type
 
-def are_containers_equal(container_a, container_b):
-    """
-    Checks container equality based on the user's specific business logic:
-    1. If one has a full 11-digit number and the other does not, they are DIFFERENT.
-    2. If BOTH have a full 11-digit number, they are considered the SAME.
-    3. If NEITHER has a number, comparison falls back to container type.
-    """
-    # NOTE: The helper function normalize_container_comparison must be called first
-    # to reliably extract the 'number' and 'type' components.
+    def are_containers_equal(container_a, container_b):
+        """
+        Checks container equality:
+        1. If both have numbers, they must match, otherwise report a difference.
+        2. If one has a number and the other does not, report a difference.
+        3. If neither has a number, check if container types match.
+        """
+        
+        # NOTE: Assuming normalize_container_comparison correctly extracts number (e.g., 'ABCU1234567') and type (e.g., '20GP')
+        norm_a = normalize_container_comparison(container_a)
+        norm_b = normalize_container_comparison(container_b)
     
-    norm_a = normalize_container_comparison(container_a)
-    norm_b = normalize_container_comparison(container_b)
-
-    num_a = norm_a["number"]
-    num_b = norm_b["number"]
-    type_a = norm_a["type"]
-    type_b = norm_b["type"]
-
-    # --- 1. & 2. Number Presence Check (User's Custom Logic) ---
-
-    # Rule: Both have a number (4 letters + 7 digits)
-    if num_a and num_b:
-        # User requirement: "both side have container number then do not do comparation."
-        # This means they are considered equal for the purpose of difference reporting.
-        return True
-
-    # Rule: Only one side has a container number
-    # (A has number AND B does NOT) OR (A does NOT have number AND B has number)
-    if (num_a and not num_b) or (not num_a and num_b):
-        # They are different because one has the specific number and the other is missing it.
-        return False
-
-    # --- 3. No numbers found on EITHER side (Both empty/type only) ---
-
-    # Rule: Check if the container types (e.g., "20GP") are the same.
-    if type_a and type_b:
-        if type_a == type_b:
+        num_a = norm_a["number"]
+        num_b = norm_b["number"]
+        type_a = norm_a["type"]
+        type_b = norm_b["type"]
+    
+        # 1. & 2. Number Presence/Value Check
+        
+        # Case A: Both have numbers. They must be IDENTICAL.
+        if num_a and num_b:
+            if num_a != num_b:
+                return False    # Numbers are different, report it!
+            return True         # Numbers are identical, considered equal
+    
+        # Case B: Only one side has a number (Missing data on the other side).
+        elif (num_a and not num_b) or (not num_a and num_b):
+            return False # Difference: One is missing the specific number.
+    
+        # 3. No numbers found on EITHER side (Both empty/type only)
+        
+        # Fallback to check if types match (e.g., '(20GP)' vs '(20GP)')
+        if type_a and type_b:
+            if type_a == type_b:
+                return True
+            # Allow original logic for near-matches (e.g., '40HC' vs '40HCR')
+            if type_a in type_b or type_b in type_a:
+                 return True
+            return False # Types are present but different
+    
+        # Final check: If both container fields were completely empty, they are considered equal.
+        if not container_a.strip() and not container_b.strip():
             return True
-        # Keep original logic for near-matches (e.g., '40HC' vs '40HCR')
-        if type_a in type_b or type_b in type_a:
-             return True
-        
-        # Types are present but different
+    
+        # If the logic falls through, they are different (e.g., one had a type, the other was empty)
         return False
-
-    # Rule: Check if one has a type and the other is empty (e.g., A="20GP", B="")
-    if (type_a and not type_b) or (not type_a and type_b):
-        return False
-        
-    # Rule: Both are completely empty. Treat as SAME.
-    return True
 
 # Enhanced Comparison Function with Vessel Comparison
 def compare_rows(row_a, row_b, columns_to_compare):
@@ -360,47 +355,87 @@ if file_a and file_b:
     existing_columns = df_b.columns.tolist()
     st.write("📋 Original Excel B Columns:", existing_columns)
 
-    # Create a new DataFrame with properly mapped columns (avoid duplicates)
+   # Create a new DataFrame with properly mapped columns (avoid duplicates)
     df_b_final = pd.DataFrame()
     mapped_columns = []
+    existing_columns = df_b.columns.tolist()
     
-    # Map each column individually to avoid duplicates
+    # --- Setup for multi-column Container Consolidation ---
+    container_cols = [] 
+    container_col_start_found = False
+    
     for col in existing_columns:
-        col_lower = str(col).lower().strip()
-        
-        if 'bc po' in col_lower or 'bcpo' in col_lower or ('po' in col_lower and 'bc' in col_lower):
+        # Use robust cleaning for matching (case-insensitive, strip spaces, replace '/')
+        col_lower = str(col).lower().strip().replace('/', ' ')
+    
+        # 1. Map BC PO (Standard name is 'BC PO')
+        if ('bc po' in col_lower or 'bcpo' in col_lower or ('po' in col_lower and 'bc' in col_lower) or 'lc' in col_lower):
             if "BC PO" not in df_b_final.columns:
                 df_b_final["BC PO"] = df_b[col]
                 mapped_columns.append(f"'{col}' → 'BC PO'")
+    
+        # 2. Map ETA (Standard name is 'ETA')
         elif 'estimated arrival' in col_lower or 'eta' in col_lower:
             if "ETA" not in df_b_final.columns:
                 df_b_final["ETA"] = df_b[col]
                 mapped_columns.append(f"'{col}' → 'ETA'")
-        elif 'container' in col_lower:
-            if "Container" not in df_b_final.columns:
-                df_b_final["Container"] = df_b[col]
-                mapped_columns.append(f"'{col}' → 'Container'")
+                
+        # 3. Map Arrival Vessel (Standard name is 'Arrival Vessel')
         elif 'arrival vessel' in col_lower or ('vessel' in col_lower and 'arrival' in col_lower):
             if "Arrival Vessel" not in df_b_final.columns:
                 df_b_final["Arrival Vessel"] = df_b[col]
                 mapped_columns.append(f"'{col}' → 'Arrival Vessel'")
+                
+        # 4. Map Arrival Voyage (Standard name is 'Arrival Voyage')
         elif 'arrival voyage' in col_lower or ('voyage' in col_lower and 'arrival' in col_lower):
             if "Arrival Voyage" not in df_b_final.columns:
                 df_b_final["Arrival Voyage"] = df_b[col]
                 mapped_columns.append(f"'{col}' → 'Arrival Voyage'")
+                
+        # 5. Map Supplier (Standard name is 'Supplier')
         elif 'supplier' in col_lower:
             if "Supplier" not in df_b_final.columns:
                 df_b_final["Supplier"] = df_b[col]
                 mapped_columns.append(f"'{col}' → 'Supplier'")
-
+                
+        # 6. Identify the Start of Container Columns (Standard name is 'Container')
+        # Use 'lfd' or 'container' to identify the start
+        elif 'container' in col_lower or col_lower == 'lfd':
+            if not container_col_start_found:
+                container_col_start_found = True
+                
+                # Heuristically check the current column and the next 5 columns for consolidation
+                start_col_index = existing_columns.index(col)
+                for i in range(start_col_index, min(start_col_index + 6, len(existing_columns))):
+                    container_cols.append(existing_columns[i])
+                
+                # The actual mapping for 'Container' happens outside this loop
+    
+    # --- Container Consolidation Block ---
+    if container_col_start_found:
+        cols_to_concat = [c for c in container_cols if c in df_b.columns]
+        
+        # Combine all identified container columns into one standardized 'Container' column
+        df_b_final["Container"] = (
+            df_b[cols_to_concat]
+            .fillna('')
+            .astype(str)
+            .agg(lambda x: ', '.join(x[x.str.strip()!=''].values), axis=1) # Join non-empty strings
+        )
+        mapped_columns.append(f"'{', '.join(cols_to_concat)}' → 'Container (Consolidated)'")
+    else:
+        # Essential fallback: create an empty 'Container' column to pass the final required column check
+        df_b_final["Container"] = "" 
+        
+    # --- Original Success/Debug Message ---
     st.success("✅ Column Mapping Completed:")
     for mapping in mapped_columns:
-        st.write(f"   - {mapping}")
-
-    # Check if we have the required columns
+        st.write(f"   - {mapping}")
+    
+    # --- Original Error Check (Retained) ---
     required_columns = ["BC PO", "ETA", "Container", "Arrival Vessel"]
     missing_columns = [col for col in required_columns if col not in df_b_final.columns]
-    
+     
     if missing_columns:
         st.error(f"Missing required columns in Excel B: {missing_columns}")
         st.stop()
@@ -473,10 +508,9 @@ if file_a and file_b:
                 unmatched_pos.append(po)
 
         # Display results
-        # --- START REVISED CATEGORIZATION LOGIC (Fix for Key Mismatch) ---
+        # --- BLOCK A: CATEGORIZE THE DIFFERENCES (Replaces start of old display logic) ---
 
-        # Define the target categories for case-insensitive and space-insensitive matching
-        # Maps the standardized (UPPERCASE) key to the official display name
+        # Define the target categories for robust, case-insensitive, space-insensitive matching
         TARGET_CATEGORIES = {
             "ETA": "ETA",
             "CONTAINER": "Container",
@@ -486,15 +520,15 @@ if file_a and file_b:
         # Initialize the final structure using the official display names
         categorized_differences = {v: [] for v in TARGET_CATEGORIES.values()}
         
-        # 1. Loop through all POs that had differences
+        # Loop through all POs that had differences
         for item in matched_differences:
-            # Use .get() for safe access
+            # FIX: Use .get() for safe access to prevent initial KeyError
             po_number = item.get("PO Number") 
             
             if not po_number:
                 continue
         
-            # 2. Loop through the differences found for that PO
+            # Loop through the differences found for that PO
             for col, diff in item.get("Differences", {}).items():
                 
                 # Standardize the key from the Differences dictionary (e.g., "Container " -> "CONTAINER")
@@ -503,22 +537,20 @@ if file_a and file_b:
                 # Check if this standardized key is one of our targets
                 if standardized_key in TARGET_CATEGORIES:
                     
-                    # Get the official display name (e.g., "Container" not "CONTAINER")
                     display_category = TARGET_CATEGORIES[standardized_key]
                     
                     # Create a clean item for display
                     diff_item = {
                         "PO Number": po_number,
-                        # Use .get() for safe access to inner difference values
                         "Excel A Value": diff.get('Excel A', 'N/A'),
                         "Excel B Value": diff.get('Excel B', 'N/A')
                     }
                     # Append to the correct category list
                     categorized_differences[display_category].append(diff_item)
         
-        # --- END REVISED CATEGORIZATION LOGIC ---
-        # --- START NEW DISPLAY LOGIC ---
-
+        
+        # --- BLOCK B: DISPLAY THE CATEGORIZED DIFFERENCES (Prints the output) ---
+        
         st.subheader("🔍 Categorized PO Differences")
         
         # Define the logical display order
@@ -539,7 +571,7 @@ if file_a and file_b:
                     val_a = diff_item["Excel A Value"]
                     val_b = diff_item["Excel B Value"]
                     
-                    # Format the output for a single difference (using your styled HTML)
+                    # Formatted output
                     st.markdown(
                         f"**PO {po}**: "
                         f"<span style='color:blue'><b>Excel A</b></span> = <span style='color:green'>'{val_a}'</span>, "
@@ -553,7 +585,7 @@ if file_a and file_b:
         if not found_differences:
             st.info("✅ No PO differences found across ETA, Container, Arrival Vessel, or Arrival Voyage in matched records.")
         
-        # --- END NEW DISPLAY LOGIC ---
+        # display new PO, that need to add into import doc  
         st.subheader("❌ Unmatched PO Numbers from Excel A")
         if unmatched_pos:
             st.write(unmatched_pos)
