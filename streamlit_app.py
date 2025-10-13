@@ -14,10 +14,10 @@ st.title("📦 IMPORT DOC UPDATE TOOL")
 #st.markdown("SELECT FORWARDER FROM THE SIDE MENU")
 
 # 使用 sidebar 导航
-with st.sidebar:
-    st.header("MENU")
-    st.page_link("pages/burnard_shipment_check.py", label="🚚 Burnard Shipment Check")
-    st.page_link("pages/dhl_shipment_check.py", label="✈️ DHL Shipment Check")
+#with st.sidebar:
+#    st.header("MENU")
+#    st.page_link("pages/burnard_shipment_check.py", label="🚚 Burnard Shipment Check")
+#    st.page_link("pages/dhl_shipment_check.py", label="✈️ DHL Shipment Check")
 
 # 主页面内容
 #st.image("https://cdn-icons-png.flaticon.com/512/104/104512.png", width=100)
