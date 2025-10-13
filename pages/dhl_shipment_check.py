@@ -15,7 +15,7 @@ This app will:
 - Highlight POs that appear more than once in DHL repot.
 """)
 
-excel_a = st.file_uploader("Upload DHL Shipment Report", type=["xlsx"])
+excel_a = st.file_uploader("**📦 Upload DHL Shipment Report**", type=["xlsx"])
 excel_b = st.file_uploader("Upload Import Doc", type=["xlsx"])
 
 def extract_po_numbers(ref_str):
