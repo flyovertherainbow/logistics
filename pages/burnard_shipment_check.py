@@ -473,42 +473,50 @@ if file_a and file_b:
                 unmatched_pos.append(po)
 
         # Display results
-        # --- START NEW CATEGORIZATION LOGIC (Modified to fix KeyError) ---
+        # --- START REVISED CATEGORIZATION LOGIC (Fix for Key Mismatch) ---
 
-        # Structure to hold differences categorized by column
-        categorized_differences = {
-            "ETA": [],
-            "Container": [],
-            "Arrival Vessel": [],
-            "Arrival Voyage": []
+        # Define the target categories for case-insensitive and space-insensitive matching
+        # Maps the standardized (UPPERCASE) key to the official display name
+        TARGET_CATEGORIES = {
+            "ETA": "ETA",
+            "CONTAINER": "Container",
+            "ARRIVAL VESSEL": "Arrival Vessel",
+            "ARRIVAL VOYAGE": "Arrival Voyage"
         }
+        # Initialize the final structure using the official display names
+        categorized_differences = {v: [] for v in TARGET_CATEGORIES.values()}
         
         # 1. Loop through all POs that had differences
         for item in matched_differences:
-            # --- FIX APPLIED HERE ---
-            # Use .get() for safe access. If 'PO Number' is missing, set po_number to None.
-            po_number = item.get("PO Number")
+            # Use .get() for safe access
+            po_number = item.get("PO Number") 
             
-            # Skip this item if the PO Number is missing or empty
             if not po_number:
-                # It's highly likely this item is malformed or an artifact from another comparison list
                 continue
-            # -------------------------
         
             # 2. Loop through the differences found for that PO
-            # Note: item.get("Differences", {}) ensures safe access to the inner dict
             for col, diff in item.get("Differences", {}).items():
-                # Only process the columns we want to categorize
-                if col in categorized_differences:
+                
+                # Standardize the key from the Differences dictionary (e.g., "Container " -> "CONTAINER")
+                standardized_key = str(col).strip().upper()
+        
+                # Check if this standardized key is one of our targets
+                if standardized_key in TARGET_CATEGORIES:
+                    
+                    # Get the official display name (e.g., "Container" not "CONTAINER")
+                    display_category = TARGET_CATEGORIES[standardized_key]
+                    
                     # Create a clean item for display
                     diff_item = {
                         "PO Number": po_number,
-                        "Excel A Value": diff['Excel A'],
-                        "Excel B Value": diff['Excel B']
+                        # Use .get() for safe access to inner difference values
+                        "Excel A Value": diff.get('Excel A', 'N/A'),
+                        "Excel B Value": diff.get('Excel B', 'N/A')
                     }
-                    categorized_differences[col].append(diff_item)
+                    # Append to the correct category list
+                    categorized_differences[display_category].append(diff_item)
         
-        # --- END NEW CATEGORIZATION LOGIC ---
+        # --- END REVISED CATEGORIZATION LOGIC ---
         # --- START NEW DISPLAY LOGIC ---
 
         st.subheader("🔍 Categorized PO Differences")
