@@ -473,7 +473,7 @@ if file_a and file_b:
                 unmatched_pos.append(po)
 
         # Display results
-        # --- START NEW CATEGORIZATION LOGIC ---
+        # --- START NEW CATEGORIZATION LOGIC (Modified to fix KeyError) ---
 
         # Structure to hold differences categorized by column
         categorized_differences = {
@@ -485,10 +485,19 @@ if file_a and file_b:
         
         # 1. Loop through all POs that had differences
         for item in matched_differences:
-            po_number = item["PO Number"]
+            # --- FIX APPLIED HERE ---
+            # Use .get() for safe access. If 'PO Number' is missing, set po_number to None.
+            po_number = item.get("PO Number")
             
+            # Skip this item if the PO Number is missing or empty
+            if not po_number:
+                # It's highly likely this item is malformed or an artifact from another comparison list
+                continue
+            # -------------------------
+        
             # 2. Loop through the differences found for that PO
-            for col, diff in item["Differences"].items():
+            # Note: item.get("Differences", {}) ensures safe access to the inner dict
+            for col, diff in item.get("Differences", {}).items():
                 # Only process the columns we want to categorize
                 if col in categorized_differences:
                     # Create a clean item for display
