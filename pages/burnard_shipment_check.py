@@ -523,7 +523,7 @@ if file_a and file_b:
         # Loop through all POs that had differences
         for item in matched_differences:
             # FIX: Use .get() for safe access to prevent initial KeyError
-            po_number = item.get("PO Number") 
+            po_number = item.get("PO") 
             
             if not po_number:
                 continue
