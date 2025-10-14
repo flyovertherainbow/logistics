@@ -399,8 +399,8 @@ if file_a and file_b:
                 mapped_columns.append(f"'{col}' → 'Supplier'")
                 
         # 6. Identify the Start of Container Columns (Standard name is 'Container')
-        # Use 'lfd' or 'container' to identify the start
-        elif 'container' in col_lower or col_lower == 'lfd':
+        # Use 'container' to identify the start.
+        elif 'container' in col_lower:
             if not container_col_start_found:
                 container_col_start_found = True
                 
@@ -408,8 +408,7 @@ if file_a and file_b:
                 start_col_index = existing_columns.index(col)
                 for i in range(start_col_index, min(start_col_index + 6, len(existing_columns))):
                     container_cols.append(existing_columns[i])
-                
-                # The actual mapping for 'Container' happens outside this loop
+                     # The actual mapping for 'Container' happens outside this loop
     
     # --- Container Consolidation Block ---
     if container_col_start_found:
