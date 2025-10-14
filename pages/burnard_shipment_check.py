@@ -353,7 +353,7 @@ if file_a and file_b:
 
     # Show original Excel B columns
     existing_columns = df_b.columns.tolist()
-    st.write("📋 Original Excel B Columns:", existing_columns)
+    st.write("📋 Original Columns of Import Doc:", existing_columns)
 
    # Create a new DataFrame with properly mapped columns (avoid duplicates)
     df_b_final = pd.DataFrame()
