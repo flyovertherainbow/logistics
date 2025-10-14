@@ -466,7 +466,7 @@ if file_a and file_b:
 
         # Show sample data from both files
         #st.subheader("📊 Sample Data Preview")
-        #col1, col2 = st.columns(2)
+        col1, col2 = st.columns(2)
         
         with col1:
             st.write("Excel A Sample (3 rows):")
