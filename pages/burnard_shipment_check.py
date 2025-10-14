@@ -427,9 +427,9 @@ if file_a and file_b:
         df_b_final["Container"] = "" 
         
     # --- Original Success/Debug Message ---
-    st.success("✅ Column Mapping Completed:")
-    for mapping in mapped_columns:
-        st.write(f"   - {mapping}")
+    #st.success("✅ Column Mapping Completed:")
+    #for mapping in mapped_columns:
+    #    st.write(f"   - {mapping}")
     
     # --- Original Error Check (Retained) ---
     required_columns = ["BC PO", "ETA", "Container", "Arrival Vessel"]
@@ -465,8 +465,8 @@ if file_a and file_b:
             po_set_b.update(extract_po_numbers(val))
 
         # Show sample data from both files
-        st.subheader("📊 Sample Data Preview")
-        col1, col2 = st.columns(2)
+        #st.subheader("📊 Sample Data Preview")
+        #col1, col2 = st.columns(2)
         
         with col1:
             st.write("Excel A Sample (3 rows):")
