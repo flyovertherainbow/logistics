@@ -522,14 +522,6 @@ if file_a and file_b:
                     }
                     # Append to the correct category list
                     categorized_differences[display_category].append(diff_item)
-        ###------ DEBUG code start------------###
-        #st.subheader("DEBUG: Raw matched_differences Content")
-        #if matched_differences:
-        #    st.json(matched_differences)
-        #else:
-        #    st.info("DEBUG: matched_differences list is EMPTY.")
-        ###---------Debug END ------###
-        # --- BLOCK B: DISPLAY THE CATEGORIZED DIFFERENCES (Prints the output) ---
         
         st.subheader("🔍 Categorized PO Differences")
         
@@ -554,8 +546,8 @@ if file_a and file_b:
                     # Formatted output
                     st.markdown(
                         f"**PO {po}**: "
-                        f"<span style='color:blue'><b>Excel A</b></span> = <span style='color:green'>'{val_a}'</span>, "
-                        f"<span style='color:blue'><b>Excel B</b></span> = <span style='color:orange'>'{val_b}'</span>",
+                        f"<span style='color:blue'><b>Burnard Report</b></span> = <span style='color:green'>'{val_a}'</span>, "
+                        f"<span style='color:blue'><b>Import Doc</b></span> = <span style='color:orange'>'{val_b}'</span>",
                         unsafe_allow_html=True
                     )
                 
@@ -566,7 +558,7 @@ if file_a and file_b:
             st.info("✅ No PO differences found across ETA, Container, Arrival Vessel, or Arrival Voyage in matched records.")
         
         # display new PO, that need to add into import doc  
-        st.subheader("❌ Unmatched PO Numbers from Excel A")
+        st.subheader("❌ Unmatched PO Numbers from Burnard Report")
         if unmatched_pos:
             st.write(unmatched_pos)
         else:
