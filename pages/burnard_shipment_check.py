@@ -547,13 +547,13 @@ if file_a and file_b:
                     }
                     # Append to the correct category list
                     categorized_differences[display_category].append(diff_item)
-
-        st.subheader("DEBUG: Raw matched_differences Content")
-        if matched_differences:
-            st.json(matched_differences)
-        else:
-            st.info("DEBUG: matched_differences list is EMPTY.")
-        
+        ###------ DEBUG code start------------###
+        #st.subheader("DEBUG: Raw matched_differences Content")
+        #if matched_differences:
+        #    st.json(matched_differences)
+        #else:
+        #    st.info("DEBUG: matched_differences list is EMPTY.")
+        ###---------Debug END ------###
         # --- BLOCK B: DISPLAY THE CATEGORIZED DIFFERENCES (Prints the output) ---
         
         st.subheader("🔍 Categorized PO Differences")
