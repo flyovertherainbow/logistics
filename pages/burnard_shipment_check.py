@@ -464,30 +464,6 @@ if file_a and file_b:
         for val in df_b_final["BC PO"]:
             po_set_b.update(extract_po_numbers(val))
 
-        # Show sample data from both files
-        #st.subheader("📊 Sample Data Preview")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.write("Excel A Sample (3 rows):")
-            display_cols_a = ["Order #", "ETA"]
-            if "Container" in df_a_clean.columns:
-                display_cols_a.append("Container")
-            if "Arrival Vessel" in df_a_clean.columns:
-                display_cols_a.append("Arrival Vessel")
-            sample_a = df_a_clean[display_cols_a].head(3).copy()
-            sample_a["ETA"] = sample_a["ETA"].apply(format_eta_display)
-            st.dataframe(sample_a)
-        
-        with col2:
-            st.write("Excel B Sample (3 rows):")
-            display_cols_b = ["BC PO", "ETA", "Container"]
-            if "Arrival Vessel" in df_b_final.columns:
-                display_cols_b.append("Arrival Vessel")
-            sample_b = df_b_final[display_cols_b].head(3).copy()
-            sample_b["ETA"] = sample_b["ETA"].apply(format_eta_display)
-            st.dataframe(sample_b)
-
         matched_differences = []
         unmatched_pos = []
 
