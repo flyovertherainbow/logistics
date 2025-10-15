@@ -22,8 +22,9 @@ def detect_header_row(df, keywords):
         row_lower = [str(x).strip().lower() for x in row]
         keyword_lower = [k.strip().lower() for k in keywords]
         
-        # Check if all keywords are present (case-insensitive)
-        if all(any(k in cell for cell in row_lower) for cell in row_lower if k in cell): # Simplified check
+        # Correct Check: Check if all keywords are present in any cell (case-insensitive)
+        # This checks if (for all keywords k) (any cell in the row contains k).
+        if all(any(k in cell for cell in row_lower) for k in keyword_lower):
             return i
     return None
 
@@ -395,7 +396,7 @@ if file_a and file_b:
 
     df_b = pd.read_excel(file_b, sheet_name=target_sheet, engine="openpyxl", header=header_row_index_b)
     
-    # --- Column Mapping and Consolidation for Excel B ---
+    # --- Column Mapping and Consolidation for Excel B (Robust to column name changes) ---
     df_b_final = pd.DataFrame()
     existing_columns = df_b.columns.tolist()
     mapped_columns = []
