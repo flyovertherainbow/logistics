@@ -18,13 +18,21 @@ def detect_header_row(df, keywords):
     for i in range(min(20, len(df))):
         # Read the row, convert to string, strip whitespace, and check for keyword presence
         row = df.iloc[i].astype(str).str.strip().tolist()
-        # Case-insensitive check for presence
+        # Case-insensitive check for presence (allowing partial match for robustness)
         row_lower = [str(x).strip().lower() for x in row]
         keyword_lower = [k.strip().lower() for k in keywords]
         
         # Check if all keywords are present (case-insensitive)
         if all(any(k in cell for cell in row_lower) for k in keyword_lower):
             return i
+    return None
+
+def find_best_match(df_cols, target_name):
+    """Finds the actual column name that matches the target name case-insensitively."""
+    target_lower = target_name.lower().strip()
+    for col in df_cols:
+        if str(col).lower().strip() == target_lower:
+            return col
     return None
 
 def extract_po_numbers(order_value):
@@ -35,8 +43,6 @@ def extract_po_numbers(order_value):
     order_str = str(order_value).upper()
     
     # Clean the string to isolate 6-digit numbers from various prefixes/separators
-    # This specifically targets 6-digit number sequences that are common PO formats.
-    # It removes common separators and non-essential text before extracting numbers.
     order_str = re.sub(r'[A-Z]+\s*#?\.?\s*', ' ', order_str) # Remove common PO, ORDER, NO prefixes
     order_str = re.sub(r'[/\-,]', ' ', order_str) # Replace internal separators with space
     
@@ -80,14 +86,9 @@ def normalize_vessel(vessel_value):
     
     # Standardize common vessel name variations
     vessel_replacements = {
-        'CMA CGM': 'CMACGM',
-        'MAERSK LINE': 'MAERSK',
-        'EVERGREEN LINE': 'EVERGREEN',
-        'COSCO SHIPPING': 'COSCO',
-        'HAPAG LLOYD': 'HAPAG-LLOYD',
-        'ONE LINE': 'ONE',
-        'OOCL LIMITED': 'OOCL',
-        'YANG MING': 'YANGMING',
+        'CMA CGM': 'CMACGM', 'MAERSK LINE': 'MAERSK', 'EVERGREEN LINE': 'EVERGREEN',
+        'COSCO SHIPPING': 'COSCO', 'HAPAG LLOYD': 'HAPAG-LLOYD', 'ONE LINE': 'ONE',
+        'OOCL LIMITED': 'OOCL', 'YANG MING': 'YANGMING',
     }
     
     for old, new in vessel_replacements.items():
@@ -111,6 +112,30 @@ def normalize_voyage(voyage_value):
         
     return voyage_str
 
+def normalize_container_type(container_type):
+    """Normalize container types to handle variations"""
+    if not container_type:
+        return ""
+        
+    container_type = container_type.upper().strip()
+    
+    type_mappings = {
+        "40RE": "40RE", "40REHC": "40RE", "40RH": "40RE", # Added 40RH for potential variations
+        "40HC": "40HC", "40HCR": "40HC", "40HCRV": "40HC",
+        "20GP": "20GP", "20RE": "20RE", "20RF": "20RF",
+        "20FR": "20FR", "45HC": "45HC",
+    }
+    
+    # Direct match or partial match
+    if container_type in type_mappings:
+        return type_mappings[container_type]
+        
+    for base_type, normalized in type_mappings.items():
+        if base_type in container_type:
+            return normalized
+            
+    return container_type
+
 def normalize_container_comparison(container_value):
     """Extracts container number and type for comparison."""
     if pd.isna(container_value) or container_value == "" or container_value is None:
@@ -119,6 +144,7 @@ def normalize_container_comparison(container_value):
     container_str = str(container_value).strip()
     
     # Pattern: [A-Za-z]{4}\d{7} followed by optional (type)
+    # The pattern is: (Container Number) Optional_Text (Container Type)
     pattern = r'([A-Za-z]{4}\d{7})\s*[\(]?\s*([A-Za-z0-9]*)\s*[\)]?'
     match = re.search(pattern, container_str)
     
@@ -134,42 +160,21 @@ def normalize_container_comparison(container_value):
             "display": f"{container_num}({normalized_type})" if normalized_type else container_num
         }
     else:
-        # If no container number pattern found, try to extract just the type
+        # If no container number pattern found, try to extract just the type/raw value
+        # This handles cases like: (20GP), or just a non-standard string
         type_pattern = r'[\(]?\s*([A-Za-z0-9]+)\s*[\)]?'
         type_match = re.search(type_pattern, container_str)
         if type_match and len(type_match.group(1)) >= 2:
             container_type = type_match.group(1).upper()
             normalized_type = normalize_container_type(container_type)
-            return {
-                "number": "",
-                "type": normalized_type,
-                "display": f"({normalized_type})" if normalized_type else container_str
-            }
+            if normalized_type:
+                 return {
+                    "number": "",
+                    "type": normalized_type,
+                    "display": f"({normalized_type})"
+                }
             
     return {"number": "", "type": "", "display": container_str}
-
-def normalize_container_type(container_type):
-    """Normalize container types to handle variations"""
-    if not container_type:
-        return ""
-        
-    container_type = container_type.upper().strip()
-    
-    type_mappings = {
-        "40RE": "40RE", "40REHC": "40RE",
-        "40HC": "40HC", "40HCR": "40HC", "40HCRV": "40HC",
-        "20GP": "20GP", "20RE": "20RE", "20RF": "20RF",
-        "20FR": "20FR", "45HC": "45HC",
-    }
-    
-    if container_type in type_mappings:
-        return type_mappings[container_type]
-        
-    for base_type, normalized in type_mappings.items():
-        if base_type in container_type:
-            return normalized
-            
-    return container_type
 
 def are_containers_equal(container_a_raw, container_b_raw):
     """
@@ -191,21 +196,21 @@ def are_containers_equal(container_a_raw, container_b_raw):
     
     # 1. Check if both have numbers
     if num_a and num_b:
-        # Rule: If container number exists in both, do not compare it, treat as equal (True)
+        # Rule: If container number exists in both, do not compare the value, treat as equal (True)
         return True
 
-    # 2. Check if only one side has a number (Missing data on the other side).
-    elif (num_a and not num_b) or (not num_a and num_b):
+    # 2. Check for the specific rule: container number exists in A, but not in B (only type or empty)
+    elif num_a and not num_b:
         # Rule: If Excel A has number and Excel B only has type/is empty -> Difference (False)
         return False 
-
-    # 3. No numbers found on EITHER side (Both empty/type only)
+    
+    # 3. No numbers found on EITHER side or only in B (which is acceptable, as A is "source of truth")
     
     # Fallback to check if types match (e.g., '(20GP)' vs '(20GP)')
     if type_a and type_b:
         if type_a == type_b:
             return True
-        # Allow original logic for near-matches
+        # Allow original logic for near-matches (e.g., '20GP' in '20GPXX')
         if type_a in type_b or type_b in type_a:
             return True
         return False # Types are present but different
@@ -214,7 +219,8 @@ def are_containers_equal(container_a_raw, container_b_raw):
     if not container_a_raw.strip() and not container_b_raw.strip():
         return True
         
-    # All other cases where logic falls through (e.g., one had a type, the other was empty)
+    # All other cases (e.g., one had a type/raw value, the other was empty) -> Difference
+    # This covers the case where A is empty and B has a type, which should be flagged
     return False
 
 def compare_rows(row_a, row_b, columns_to_compare):
@@ -277,25 +283,44 @@ def compare_rows(row_a, row_b, columns_to_compare):
     # ETA, Container, Arrival Vessel are core. Voyage is supplementary.
     is_core_diff = has_eta_diff or has_container_diff or has_vessel_diff
 
-    if not is_core_diff:
-        # If no core differences, we report nothing (Voyage only differences are excluded)
+    if not is_core_diff and not has_voyage_diff:
+        # If no differences at all
         return {}
     
-    # If one core difference, show only that one.
-    if has_eta_diff and not has_container_diff and not has_vessel_diff:
-        filtered_differences = {"ETA": differences["ETA"]}
-    elif has_container_diff and not has_eta_diff and not has_vessel_diff:
-        filtered_differences = {"Container": differences["Container"]}
-    elif has_vessel_diff and not has_eta_diff and not has_container_diff:
-        filtered_differences = {"Arrival Vessel": differences["Arrival Vessel"]}
+    if not is_core_diff and has_voyage_diff:
+        # Rule: Arrival Voyage differences are only reported alongside one of the main three differences.
+        # This condition means we should ignore voyage-only differences.
+        return {}
+
+    # If only one core field differs, only that difference is shown.
+    if is_core_diff and sum([has_eta_diff, has_container_diff, has_vessel_diff]) == 1:
+        if has_eta_diff:
+            filtered_differences = {"ETA": differences["ETA"]}
+        elif has_container_diff:
+            filtered_differences = {"Container": differences["Container"]}
+        elif has_vessel_diff:
+            filtered_differences = {"Arrival Vessel": differences["Arrival Vessel"]}
     
-    # If multiple core differences, show all differences (including Voyage if present)
-    else:
-        filtered_differences.update({k: v for k, v in differences.items() if k != "Arrival Voyage"})
+    # If two or more core fields differ, all fields showing a difference are reported.
+    elif sum([has_eta_diff, has_container_diff, has_vessel_diff]) >= 2:
+        # Include all core differences
+        if has_eta_diff: filtered_differences["ETA"] = differences["ETA"]
+        if has_container_diff: filtered_differences["Container"] = differences["Container"]
+        if has_vessel_diff: filtered_differences["Arrival Vessel"] = differences["Arrival Vessel"]
+        
+        # Include voyage difference if it exists
         if has_voyage_diff:
              filtered_differences["Arrival Voyage"] = differences["Arrival Voyage"]
-        
+             
+    # This block also captures the single core diff if voyage is present. 
+    # Recalculating all differences for simplicity based on the rule that if there is a core diff,
+    # and a voyage diff, report the voyage diff.
+    if is_core_diff and has_voyage_diff:
+        if "Arrival Voyage" in differences:
+            filtered_differences["Arrival Voyage"] = differences["Arrival Voyage"]
+
     return filtered_differences
+
 
 def convert_to_csv(data, columns=None):
     """Converts a list of dicts or a list of items to a CSV byte object."""
@@ -305,7 +330,7 @@ def convert_to_csv(data, columns=None):
     elif isinstance(data, list):
         df = pd.DataFrame(data)
     else:
-        # Should not happen in this script flow, but as a fallback
+        # Fallback for unexpected data types
         df = pd.DataFrame(data, columns=columns)
         
     df.to_csv(output, index=False)
@@ -325,12 +350,12 @@ if file_a and file_b:
         st.error(f"Error reading Excel A: {e}")
         st.stop()
         
-    # Detect header row
-    header_keywords = ["All References", "Supplier Name"]
+    # Detect header row (Corrected keywords: looking for 'Shipper Name' as seen in file)
+    header_keywords = ["All References", "Shipper Name"]
     header_row_index = detect_header_row(df_a_raw, header_keywords)
 
     if header_row_index is None:
-        st.error("Could not detect header row in Excel A. Check for 'All References' and 'Supplier Name'.")
+        st.error("Could not detect header row in Excel A. Check for 'All References' and 'Shipper Name'.")
         st.stop()
     
     # Load data with correct header
@@ -339,37 +364,39 @@ if file_a and file_b:
     
     # Map and rename required columns for comparison
     col_map_a = {
-        'All References': 'PO_Raw', # Use a temporary name for raw PO extraction
+        'All References': 'PO_Raw', 
         'Estimated Arrival': 'ETA',
         'Vessel Name (Last Leg)': 'Arrival Vessel',
         'Voyage/Flight Number (Last Leg)': 'Arrival Voyage',
         'Container Number': 'Container_Number_A',
         'Container Type': 'Container_Type_A',
-        'Supplier Name': 'Supplier',
+        'Shipper Name': 'Supplier', # FIX: Key is now 'Shipper Name' (from file), mapped to 'Supplier' (standard name)
     }
     
-    # Find the actual columns in df_a that match the expected key columns (case-insensitive)
-    def find_best_match(df_cols, target_name):
-        target_lower = target_name.lower().strip()
-        for col in df_cols:
-            if str(col).lower().strip() == target_lower:
-                return col
-        return None
-
-    # Rename columns using the actual column names from the file
-    df_a.columns = [find_best_match(df_a.columns, target) if find_best_match(df_a.columns, target) is not None else col for col, target in zip(df_a.columns, df_a.columns)]
+    # Create the actual renaming dictionary: {Actual Column Name: Standard Column Name}
+    rename_dict = {}
     
+    # Iterate through the expected keys (e.g., 'All References', 'Shipper Name')
+    for key_a, standard_name in col_map_a.items():
+        # Find the column in df_a that matches this expected key (case-insensitive)
+        actual_col_name = find_best_match(df_a.columns, key_a)
+        if actual_col_name:
+            rename_dict[actual_col_name] = standard_name
+            
     # Rename columns to standard names for processing
-    df_a.rename(columns={find_best_match(df_a.columns, k): v for k, v in col_map_a.items() if find_best_match(df_a.columns, k) is not None}, inplace=True)
+    df_a.rename(columns=rename_dict, inplace=True)
     
-    missing_a = [v for k, v in col_map_a.items() if v not in df_a.columns]
+    # Check for missing required columns (now using the standardized names)
+    required_a_standard = list(col_map_a.values())
+    missing_a = [col for col in required_a_standard if col not in df_a.columns]
+    
     if missing_a:
         st.error(f"Missing required columns in Excel A after mapping: {missing_a}")
         st.stop()
         
     # 1. Clean ETA and filter by date
     df_a['ETA'] = pd.to_datetime(df_a['ETA'], errors='coerce')
-    df_a_clean = df_a.dropna(subset=['ETA'])
+    df_a_clean = df_a.dropna(subset=['ETA']).copy()
     
     # Filter: ETA must be a validated date and from 3 days before current date.
     today = datetime.date.today()
@@ -384,14 +411,17 @@ if file_a and file_b:
     # 3. Extract PO numbers and filter rows
     df_a_clean['PO_List'] = df_a_clean['PO_Raw'].apply(extract_po_numbers)
     # Filter: rows that have validate PO Number at the columns All references.
-    df_a_clean = df_a_clean[df_a_clean['PO_List'].apply(lambda x: len(x) > 0)]
+    df_a_clean = df_a_clean[df_a_clean['PO_List'].apply(lambda x: len(x) > 0)].copy()
     
     # Final structure for comparison map
     po_map_a = {}
     for idx, row in df_a_clean.iterrows():
         for po in row["PO_List"]:
             # Store the final row data under each PO for lookup
-            po_map_a[po] = row.to_dict()
+            # Use po_map_a.get(po, {}) to handle multiple POs per row, ensuring we keep all data
+            if po not in po_map_a:
+                po_map_a[po] = row.to_dict()
+            # If multiple rows have the same PO, this logic uses the first row found (which is acceptable for comparison)
 
 
     # --- STEP 2: Process Excel B (Import Doc) ---
@@ -410,8 +440,8 @@ if file_a and file_b:
 
     for sheet in sheet_names_b:
         try:
-            # Assumes the sheet name *is* the date string (e.g., "10.2025")
-            date_obj = datetime.datetime.strptime(sheet, "%m.%Y")
+            # Check for MM.YYYY format
+            date_obj = datetime.datetime.strptime(sheet.strip(), "%m.%Y")
             if latest_date is None or date_obj > latest_date:
                 latest_date = date_obj
                 latest_sheet = sheet
@@ -419,28 +449,28 @@ if file_a and file_b:
             continue
 
     if latest_sheet:
+        # Load initially with header=None to detect header
         df_b = pd.read_excel(file_b, sheet_name=latest_sheet, engine="openpyxl", header=None)
-        st.info(f"Using the most recent sheet: {latest_sheet}")
+        st.info(f"Using the most recent sheet: **{latest_sheet}**")
     else:
         last_sheet = sheet_names_b[-1]
         df_b = pd.read_excel(file_b, sheet_name=last_sheet, engine="openpyxl", header=None)
-        st.info(f"Using the last sheet: {last_sheet}")
+        st.info(f"Using the last sheet: **{last_sheet}**")
 
     # Detect header row in Excel B
-    # Since the column mapping is flexible, we don't need highly strict keywords, but we need the row.
-    # We will use the same header detection as Excel A to find a plausible header.
-    header_keywords_b = ["BC PO/LC", "ETA Dates"] # Common names in the snippets
+    header_keywords_b = ["BC PO", "ETA"] 
     header_row_index_b = detect_header_row(df_b, header_keywords_b)
     
     if header_row_index_b is None:
          st.warning("Could not automatically detect header row in Excel B. Defaulting to first non-empty row (index 0).")
          header_row_index_b = 0
-         df_b = pd.read_excel(file_b, sheet_name=latest_sheet if latest_sheet else last_sheet, engine="openpyxl", header=None)
-         df_b.columns = [f'Col_{i}' for i in range(df_b.shape[1])] # Simple columns
+         # Reload using the raw data from df_b_raw but setting the header manually if needed
+         # Since df_b is already header=None, we can proceed and map the columns by position/heuristic
     else:
          st.success(f"Header for Excel B detected at row {header_row_index_b + 1}.")
+         # Reload the data with the correct header row
          df_b = pd.read_excel(file_b, sheet_name=latest_sheet if latest_sheet else last_sheet, engine="openpyxl", header=header_row_index_b)
-
+    
     # --- Column Mapping and Consolidation for Excel B ---
     
     df_b_final = pd.DataFrame()
@@ -448,10 +478,11 @@ if file_a and file_b:
     mapped_columns = []
     
     # Define keywords for mapping
+    # Note: Using case-insensitive partial matching for robust column identification
     mapping_keywords = {
         "BC PO": ['bc po', 'bcpo', 'lc', 'po/lc'],
         "ETA": ['estimated arrival', 'eta dates', 'eta'],
-        "Arrival Vessel": ['vessel name', 'arrival vessel', 'freight co'], # Often in Freight Co/Freight columns for some sheets
+        "Arrival Vessel": ['vessel name', 'arrival vessel'],
         "Arrival Voyage": ['voyage/flight number', 'arrival voyage', 'voyage'],
         "Supplier": ['supplier'],
     }
@@ -462,8 +493,8 @@ if file_a and file_b:
             for col in existing_columns:
                 col_lower = str(col).lower().strip().replace('/', ' ').replace('.', '').replace('#', '')
                 if any(keyword in col_lower for keyword in keywords):
-                    # Check for "BC PO" to prefer the dedicated column
-                    if standard_col == "BC PO" and 'bc po' not in col_lower:
+                    # Heuristic to avoid mapping 'Arrival Vessel' to a generic 'Freight Co' if a better match exists.
+                    if standard_col == "Arrival Vessel" and any(k in col_lower for k in ['freight co', 'freight']):
                         continue
                         
                     df_b_final[standard_col] = df_b[col]
@@ -472,31 +503,37 @@ if file_a and file_b:
 
     # Map Container columns (Consolidation)
     container_cols = []
-    container_col_start_found = False
     
     for col in existing_columns:
         col_lower = str(col).lower().strip().replace('/', ' ').replace('.', '').replace('#', '')
+        # Check for columns explicitly named 'Container' or starting with 'Container NO.'
         if 'container' in col_lower or 'cont.' in col_lower:
-            if not container_col_start_found:
-                container_col_start_found = True
-                start_col_index = existing_columns.index(col)
-                # Heuristically check the current column and the next 5 columns for consolidation
-                for i in range(start_col_index, min(start_col_index + 6, len(existing_columns))):
-                    container_cols.append(existing_columns[i])
-                    
-    if container_col_start_found:
+             container_cols.append(col)
+             
+    # Try to find adjacent container columns for consolidation
+    if not container_cols:
+        # Heuristic: Find first column that looks like container NO. and take next few
+        for col_name in existing_columns:
+            if str(col_name).strip().upper().startswith('CONTAINER NO'):
+                start_index = existing_columns.index(col_name)
+                # Take the column and next 5 adjacent columns for consolidation
+                container_cols = existing_columns[start_index:start_index + 6]
+                break
+            
+    if container_cols:
         cols_to_concat = [c for c in container_cols if c in df_b.columns]
         
+        # Concatenate non-empty values from these columns into a single, standardized Container column, separated by a comma.
         df_b_final["Container"] = (
             df_b[cols_to_concat]
             .fillna('')
             .astype(str)
-            .agg(lambda x: ', '.join(x[x.str.strip()!=''].values), axis=1) # Join non-empty strings
+            .agg(lambda x: ', '.join(x[x.str.strip()!=''].values), axis=1) 
         )
         mapped_columns.append(f"'{', '.join(cols_to_concat)}' → 'Container (Consolidated)'")
     else:
         df_b_final["Container"] = ""
-        st.warning("Could not identify container columns in Excel B. Container comparison will fail.")
+        st.warning("Could not identify container columns in Excel B. Container comparison might be limited.")
 
     st.success("✅ Column Mapping Completed in Excel B:")
     for mapping in mapped_columns:
@@ -544,7 +581,7 @@ if file_a and file_b:
     # --- STEP 4: Display Results ---
     
     TARGET_CATEGORIES = {
-        "ETA": "ETA",
+        "ETA": "Estimated Arrival",
         "CONTAINER": "Container",
         "ARRIVAL VESSEL": "Arrival Vessel",
         "ARRIVAL VOYAGE": "Arrival Voyage"
@@ -557,10 +594,9 @@ if file_a and file_b:
             continue
             
         for col, diff in item.get("Differences", {}).items():
-            standardized_key = str(col).strip().upper()
+            display_category = col 
             
-            if standardized_key in TARGET_CATEGORIES:
-                display_category = TARGET_CATEGORIES[standardized_key]
+            if display_category in categorized_differences:
                 diff_item = {
                     "PO Number": po_number,
                     "Excel A Value": diff.get('Excel A', 'N/A'),
@@ -568,9 +604,9 @@ if file_a and file_b:
                 }
                 categorized_differences[display_category].append(diff_item)
                 
-    st.subheader("🔍 Categorized PO Differences (A $\leftrightarrow$ B)")
+    st.subheader("🔍 Categorized PO Differences (ECLY Report $\leftrightarrow$ Import Doc)")
     
-    display_order = ["ETA", "Container", "Arrival Vessel", "Arrival Voyage"]
+    display_order = ["Estimated Arrival", "Container", "Arrival Vessel", "Arrival Voyage"]
     found_differences = False
     
     for category in display_order:
@@ -581,33 +617,25 @@ if file_a and file_b:
             
             st.markdown(f"#### 🛑 Differences in {category}", unsafe_allow_html=True)
             
-            for diff_item in diff_list:
-                po = diff_item["PO Number"]
-                val_a = diff_item["Excel A Value"]
-                val_b = diff_item["Excel B Value"]
-                
-                # Formatted output
-                st.markdown(
-                    f"**PO {po}**: "
-                    f"<span style='color:blue'><b>ECLY Report</b></span> = <span style='color:green'>'{val_a}'</span>, "
-                    f"<span style='color:blue'><b>Import Doc</b></span> = <span style='color:orange'>'{val_b}'</span>",
-                    unsafe_allow_html=True
-                )
+            # Convert list of dicts to DataFrame for clean display
+            df_diff = pd.DataFrame(diff_list)
+            st.dataframe(df_diff, use_container_width=True, hide_index=True)
             
             st.markdown("---")
             
     if not found_differences:
-        st.info("✅ No PO differences found across ETA, Container, Arrival Vessel, or Arrival Voyage in matched records.")
+        st.info("✅ No PO differences found across key fields in matched records.")
         
     st.subheader("❌ Unmatched PO Numbers from ECLY Report (Need to be added to Import Doc)")
     if unmatched_pos:
-        st.write(unmatched_pos)
+        st.write(pd.DataFrame(unmatched_pos, columns=["Unmatched PO Number"]))
     else:
-        st.write("All PO numbers from Excel A matched with Excel B.")
+        st.write("All required PO numbers from Excel A matched with Excel B.")
 
     # --- STEP 5: Export Buttons ---
     
     export_matched = []
+    # Re-structure for clean export
     for item in matched_differences:
         row = {"PO": item["PO"]}
         for col, diff in item["Differences"].items():
