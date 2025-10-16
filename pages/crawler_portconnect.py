@@ -48,6 +48,8 @@ def execute_login_sequence(page, USERNAME, PASSWORD, PORTCONNECT_URL, status_pla
     PASSWORD_SELECTOR = "#password"
     # Selector for the Submit/Next button on the B2C login page
     SUBMIT_BUTTON_SELECTOR = "#next"
+    # NEW Selector: A key element expected on the post-login dashboard
+    TRACK_AND_TRACE_SELECTOR = "a:text('Track and Trace')"
 
     try:
         # --- 2. Click Dropdown ---
@@ -73,17 +75,21 @@ def execute_login_sequence(page, USERNAME, PASSWORD, PORTCONNECT_URL, status_pla
 
         # --- 6. Submit Login ---
         status_placeholder.info("5. Submitting login...")
+        # Submitting the form initiates the final redirect back to the app
         page.click(SUBMIT_BUTTON_SELECTOR)
 
-        # --- 7. Post-Login Wait (The Debugged Fix) ---
-        status_placeholder.info("6. Waiting for post-login dashboard (using networkidle)...")
-        # The key debugged step: Wait for the successful final redirect back to the app URL.
-        # Timeout increased to 30s and wait_until set to 'networkidle'
-        # to ensure all dynamic elements (account links, data) are fully loaded
-        # after the external B2C authentication completes.
+        # --- 7. Post-Login URL Wait (Previous Debugged Fix) ---
+        status_placeholder.info("6. Waiting for post-login URL change and network idle...")
+        # Wait for the successful final redirect back to the app URL and network stability.
         page.wait_for_url(PORTCONNECT_URL + "*", wait_until="networkidle", timeout=30000)
+        
+        # --- 8. Wait for Key Dashboard Element (Fix for new timeout) ---
+        status_placeholder.info(f"7. Confirming key dashboard element is ready: '{TRACK_AND_TRACE_SELECTOR}'...")
+        # Even after network idle, SPAs may take a moment to render the final component (e.g., navigation).
+        # We explicitly wait for the next intended interaction target to resolve the Page.click timeout.
+        page.wait_for_selector(TRACK_AND_TRACE_SELECTOR, state="visible", timeout=15000)
 
-        status_placeholder.success("Login successful and dashboard loaded!")
+        status_placeholder.success("Login successful and dashboard confirmed ready!")
         return True
 
     except Exception as e:
