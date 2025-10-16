@@ -35,6 +35,61 @@ def install_playwright():
         st.error(f"Unexpected error during Playwright setup: {e}")
         return False
 
+#login
+def execute_login_sequence(page, USERNAME, PASSWORD, PORTCONNECT_URL, status_placeholder):
+    # --- 1. Define Selectors ---
+    # Selector for the main Sign-in/Sign-up dropdown link
+    DROPDOWN_SELECTOR = "#navbar > ul.nav.navbar-top-links.navbar-right > li > a"
+    # Selector for the Sign-in link inside the opened dropdown
+    SIGN_IN_LINK_SELECTOR = "#navbar > ul.nav.navbar-top-links.navbar-right > li > ul > li:nth-child(1) > a"
+    # Selector for the Email/Username input field on the B2C login page
+    EMAIL_SELECTOR = "#signInName"
+    # Selector for the Password input field on the B2C login page
+    PASSWORD_SELECTOR = "#password"
+    # Selector for the Submit/Next button on the B2C login page
+    SUBMIT_BUTTON_SELECTOR = "#next"
+
+    try:
+        # --- 2. Click Dropdown ---
+        status_placeholder.info("1. Clicking Sign-in/Sign-up dropdown...")
+        # Wait until the dropdown link is visible and click it
+        page.wait_for_selector(DROPDOWN_SELECTOR, state="visible", timeout=10000).click()
+
+        # --- 3. Click Sign-in Link ---
+        status_placeholder.info("2. Clicking Sign-in link...")
+        # Wait until the Sign-in link appears in the dropdown and click it
+        page.wait_for_selector(SIGN_IN_LINK_SELECTOR, state="visible", timeout=10000).click()
+
+        # --- 4. Wait for Login Form (B2C Redirect) ---
+        status_placeholder.info("3. Waiting for the B2C login form to load...")
+        # The click above triggers a redirect to the B2C domain.
+        # Wait for the email input field to appear, confirming the B2C form is ready.
+        page.wait_for_selector(EMAIL_SELECTOR, state="visible", timeout=15000)
+
+        # --- 5. Fill Login Form ---
+        status_placeholder.info("4. Filling email and password...")
+        page.fill(EMAIL_SELECTOR, USERNAME)
+        page.fill(PASSWORD_SELECTOR, PASSWORD)
+
+        # --- 6. Submit Login ---
+        status_placeholder.info("5. Submitting login...")
+        page.click(SUBMIT_BUTTON_SELECTOR)
+
+        # --- 7. Post-Login Wait (The Debugged Fix) ---
+        status_placeholder.info("6. Waiting for post-login dashboard (using networkidle)...")
+        # The key debugged step: Wait for the successful final redirect back to the app URL.
+        # Timeout increased to 30s and wait_until set to 'networkidle'
+        # to ensure all dynamic elements (account links, data) are fully loaded
+        # after the external B2C authentication completes.
+        page.wait_for_url(PORTCONNECT_URL + "*", wait_until="networkidle", timeout=30000)
+
+        status_placeholder.success("Login successful and dashboard loaded!")
+        return True
+
+    except Exception as e:
+        status_placeholder.error(f"Login failed: {e}")
+        return False
+
 # --- Core Scraping Logic ---
 
 def run_crawler(container_list, status_placeholder):
@@ -59,32 +114,9 @@ def run_crawler(container_list, status_placeholder):
             status_placeholder.info("1. Navigating to PortConnect...")
             page.goto(PORTCONNECT_URL, wait_until="load", timeout=30000)
             
-            # --- 2. Login Sequence ---
-            DROPDOWN_SELECTOR = "#navbar > ul.nav.navbar-top-links.navbar-right > li > a"
-            SIGN_IN_LINK_SELECTOR = "#navbar > ul.nav.navbar-top-links.navbar-right > li > ul > li:nth-child(1) > a"
-            EMAIL_SELECTOR = "#signInName"
-            PASSWORD_SELECTOR = "#password"
-            SUBMIT_BUTTON_SELECTOR = "#next"
-            
-            status_placeholder.info("2. Clicking Sign-in/Sign-up dropdown...")
-            page.wait_for_selector(DROPDOWN_SELECTOR, state="visible", timeout=10000).click()
+            # ---- 2. login ----
+            execute_login_sequence(page, USERNAME, PASSWORD, PORTCONNECT_URL, status_placeholder)
 
-            status_placeholder.info("3. Clicking Sign-in link...")
-            page.wait_for_selector(SIGN_IN_LINK_SELECTOR, state="visible", timeout=10000).click()
-            
-            status_placeholder.info("4. Filling login form...")
-            page.wait_for_selector(EMAIL_SELECTOR, state="visible", timeout=15000)
-            
-            page.fill(EMAIL_SELECTOR, USERNAME)
-            page.fill(PASSWORD_SELECTOR, PASSWORD)
-            
-            status_placeholder.info("5. Submitting login...")
-            page.click(SUBMIT_BUTTON_SELECTOR)
-            
-            # === FIX APPLIED HERE ===
-            # Wait for successful navigation to the post-login state (URL pattern)
-            # Increased timeout to 45s and changed wait_until to 'networkidle' for SPA reliability.
-            page.wait_for_url(PORTCONNECT_URL + "*", wait_until="networkidle", timeout=30000)
             
             # --- 3. Navigate to Search ---
             TRACK_TRACE_MENU = 'a:text("Track and Trace")' # Using text content for reliability
