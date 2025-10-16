@@ -8,8 +8,8 @@ import time
 
 # --- Configuration ---
 PORTCONNECT_URL = "https://www.portconnect.co.nz/#/home"
-USERNAME = "test@gmail.com"
-PASSWORD = "pass1243"
+USERNAME = "Calony.lam@ecly.co.nz"
+PASSWORD = "Eclyltd88$"
 CONTAINER_INPUT_SELECTOR = "#txContainerInput"
 
 # --- Playwright Installation and Caching ---
