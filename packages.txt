@@ -1,0 +1,4 @@
+chromium
+# Optional, depending on which browsers you use:
+# firefox
+# webkit
