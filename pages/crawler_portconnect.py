@@ -84,7 +84,7 @@ def run_crawler(container_list, status_placeholder):
             # === FIX APPLIED HERE ===
             # Wait for successful navigation to the post-login state (URL pattern)
             # Increased timeout to 45s and changed wait_until to 'networkidle' for SPA reliability.
-            page.wait_for_url(PORTCONNECT_URL + "*", wait_until="networkidle", timeout=45000)
+            page.wait_for_url(PORTCONNECT_URL + "*", wait_until="networkidle", timeout=30000)
             
             # --- 3. Navigate to Search ---
             TRACK_TRACE_MENU = 'a:text("Track and Trace")' # Using text content for reliability
