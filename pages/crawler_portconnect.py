@@ -5,8 +5,8 @@ import sys
 
 # Define the login credentials and URL
 PORTCONNECT_URL = "https://www.portconnect.co.nz/#/home"
-USERNAME = "test@gmail.com"
-PASSWORD = "pass1243"
+USERNAME = "Calony.lam@ecly.co.nz"
+PASSWORD = "Eclyltd88$"
 
 # --- CACHE THE PLAYWRIGHT INSTALLATION ---
 @st.cache_resource(show_spinner="Setting up browser environment...")
