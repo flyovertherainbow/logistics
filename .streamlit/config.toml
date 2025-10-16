@@ -2,3 +2,11 @@
 headless = true
 enableCORS = false
 port = 8501
+
+[server]
+# Command to run before the main command (streamlit run ...)
+# This ensures Playwright's browsers are downloaded/setup after
+# the system packages (from packages.txt) are installed.
+# We set this to 0 as it's the simplest way to run a pre-start command.
+runOnSave = true
+runBeforeMainCommand = "bash post_install.sh"
