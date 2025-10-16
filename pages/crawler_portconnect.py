@@ -81,8 +81,10 @@ def run_crawler(container_list, status_placeholder):
             status_placeholder.info("5. Submitting login...")
             page.click(SUBMIT_BUTTON_SELECTOR)
             
+            # === FIX APPLIED HERE ===
             # Wait for successful navigation to the post-login state (URL pattern)
-            page.wait_for_url(PORTCONNECT_URL + "*", timeout=30000)
+            # Increased timeout to 45s and changed wait_until to 'networkidle' for SPA reliability.
+            page.wait_for_url(PORTCONNECT_URL + "*", wait_until="networkidle", timeout=45000)
             
             # --- 3. Navigate to Search ---
             TRACK_TRACE_MENU = 'a:text("Track and Trace")' # Using text content for reliability
@@ -93,24 +95,20 @@ def run_crawler(container_list, status_placeholder):
             # Click the dropdown menu to make the search link visible
             page.click(TRACK_TRACE_MENU)
 
-            # --- IMPROVED NAVIGATION: Click the link and wait for the new URL in one step ---
-            # Wait for the search link to be visible, then click it, and wait for the subsequent URL change
+            # Click the search link, and wait for the subsequent navigation to complete
             page.wait_for_selector(SEARCH_LINK, state="visible", timeout=10000)
             page.click(
                 SEARCH_LINK, 
-                # This option tells Playwright to wait for the network to be idle 
-                # (a reliable state for SPAs) after the click causes a navigation.
                 wait_until="networkidle", 
                 timeout=30000
             ) 
-            # Note: We no longer need the separate page.wait_for_url call below, 
-            # as page.click with wait_until handles it.
 
             # --- 4. Perform Search ---
             SEARCH_BUTTON_SELECTOR = 'div.search-item-button > button.btn.btn-primary:text("Search")'
             
             status_placeholder.info("7. Inputting container numbers and searching...")
             # Input container numbers
+            # We wait for the container input field to be visible on the new search page
             page.wait_for_selector(CONTAINER_INPUT_SELECTOR, state="visible", timeout=10000).fill(container_input_text)
             
             # Click the search button
@@ -121,14 +119,13 @@ def run_crawler(container_list, status_placeholder):
             
             status_placeholder.info("8. Waiting for search results...")
             
-            # Wait for the table body to contain results (or for a common load indicator to disappear)
+            # Wait for the table body to appear after the search submission
             try:
-                # This wait is for the search results (after clicking search)
-                page.wait_for_selector(RESULTS_TABLE_BODY_SELECTOR, state="attached", timeout=45000) # Increased search results wait
+                page.wait_for_selector(RESULTS_TABLE_BODY_SELECTOR, state="attached", timeout=45000)
             except PlaywrightTimeoutError:
                 status_placeholder.warning("Search results table not found or timed out. This may indicate an empty result set or a login/navigation error.")
                 browser.close()
-                return pd.DataFrame(), True # Return empty dataframe but successful navigation
+                return pd.DataFrame(), True 
 
             status_placeholder.info("9. Extracting data from results table...")
             
@@ -164,7 +161,7 @@ def run_crawler(container_list, status_placeholder):
             return df, True
             
     except PlaywrightTimeoutError as e:
-        status_placeholder.error(f"Playwright timed out during execution: {e}. Check selectors or network connection.")
+        status_placeholder.error(f"Playwright timed out during execution: {e}. The maximum wait time of 45 seconds was exceeded during one of the navigation steps. Please check the website's status or network connectivity.")
         try:
             browser.close()
         except:
