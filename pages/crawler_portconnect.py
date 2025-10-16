@@ -8,8 +8,8 @@ import time
 
 # --- Configuration ---
 PORTCONNECT_URL = "https://www.portconnect.co.nz/#/home"
-USERNAME = "Calony.lam@ecly.co.nz"
-PASSWORD = "Eclyltd88$"
+USERNAME = "test@gmail.com"
+PASSWORD = "pass1243"
 CONTAINER_INPUT_SELECTOR = "#txContainerInput"
 
 # --- Playwright Installation and Caching ---
@@ -57,7 +57,7 @@ def run_crawler(container_list, status_placeholder):
             
             # --- 1. Navigation ---
             status_placeholder.info("1. Navigating to PortConnect...")
-            page.goto(PORTCONNECT_URL, wait_until="load", timeout=20000)
+            page.goto(PORTCONNECT_URL, wait_until="load", timeout=30000)
             
             # --- 2. Login Sequence ---
             DROPDOWN_SELECTOR = "#navbar > ul.nav.navbar-top-links.navbar-right > li > a"
@@ -73,7 +73,6 @@ def run_crawler(container_list, status_placeholder):
             page.wait_for_selector(SIGN_IN_LINK_SELECTOR, state="visible", timeout=10000).click()
             
             status_placeholder.info("4. Filling login form...")
-            # Wait for the login form to load (it might be a redirect or a modal)
             page.wait_for_selector(EMAIL_SELECTOR, state="visible", timeout=15000)
             
             page.fill(EMAIL_SELECTOR, USERNAME)
@@ -83,21 +82,30 @@ def run_crawler(container_list, status_placeholder):
             page.click(SUBMIT_BUTTON_SELECTOR)
             
             # Wait for successful navigation to the post-login state (URL pattern)
-            page.wait_for_url(PORTCONNECT_URL + "*", timeout=15000)
+            page.wait_for_url(PORTCONNECT_URL + "*", timeout=30000)
             
             # --- 3. Navigate to Search ---
             TRACK_TRACE_MENU = 'a:text("Track and Trace")' # Using text content for reliability
             SEARCH_LINK = 'a[href="/#/track-trace/search"]'
             
             status_placeholder.info("6. Navigating to Track and Trace -> Search...")
-            # Click the dropdown menu
+            
+            # Click the dropdown menu to make the search link visible
             page.click(TRACK_TRACE_MENU)
-            # Click the search link inside the dropdown
-            page.wait_for_selector(SEARCH_LINK, state="visible", timeout=10000).click()
-            
-            # Wait for the search page URL to load
-            page.wait_for_url("*/track-trace/search", timeout=15000)
-            
+
+            # --- IMPROVED NAVIGATION: Click the link and wait for the new URL in one step ---
+            # Wait for the search link to be visible, then click it, and wait for the subsequent URL change
+            page.wait_for_selector(SEARCH_LINK, state="visible", timeout=10000)
+            page.click(
+                SEARCH_LINK, 
+                # This option tells Playwright to wait for the network to be idle 
+                # (a reliable state for SPAs) after the click causes a navigation.
+                wait_until="networkidle", 
+                timeout=30000
+            ) 
+            # Note: We no longer need the separate page.wait_for_url call below, 
+            # as page.click with wait_until handles it.
+
             # --- 4. Perform Search ---
             SEARCH_BUTTON_SELECTOR = 'div.search-item-button > button.btn.btn-primary:text("Search")'
             
@@ -114,9 +122,9 @@ def run_crawler(container_list, status_placeholder):
             status_placeholder.info("8. Waiting for search results...")
             
             # Wait for the table body to contain results (or for a common load indicator to disappear)
-            # We wait for the results table to appear. If it doesn't appear in time, we assume no results/error.
             try:
-                page.wait_for_selector(RESULTS_TABLE_BODY_SELECTOR, state="attached", timeout=30000)
+                # This wait is for the search results (after clicking search)
+                page.wait_for_selector(RESULTS_TABLE_BODY_SELECTOR, state="attached", timeout=45000) # Increased search results wait
             except PlaywrightTimeoutError:
                 status_placeholder.warning("Search results table not found or timed out. This may indicate an empty result set or a login/navigation error.")
                 browser.close()
