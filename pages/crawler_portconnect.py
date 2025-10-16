@@ -49,7 +49,7 @@ def execute_login_sequence(page, USERNAME, PASSWORD, PORTCONNECT_URL, status_pla
     # Selector for the Submit/Next button on the B2C login page
     SUBMIT_BUTTON_SELECTOR = "#next"
     # NEW Selector: A key element expected on the post-login dashboard
-    TRACK_AND_TRACE_SELECTOR = "a:text('Track and Trace')"
+    TRACK_AND_TRACE_SELECTOR = "#pc-menu > li:nth-child(2) > a"
 
     try:
         # --- 2. Click Dropdown ---
