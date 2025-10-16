@@ -1,119 +1,239 @@
 import streamlit as st
+import pandas as pd
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 import subprocess
 import sys
+import io
+import time
 
-# Define the login credentials and URL
+# --- Configuration ---
 PORTCONNECT_URL = "https://www.portconnect.co.nz/#/home"
-USERNAME = "Calony.lam@ecly.co.nz"
-PASSWORD = "Eclyltd88$"
+USERNAME = "test@gmail.com"
+PASSWORD = "pass1243"
+CONTAINER_INPUT_SELECTOR = "#txContainerInput"
 
-# --- CACHE THE PLAYWRIGHT INSTALLATION ---
+# --- Playwright Installation and Caching ---
+
 @st.cache_resource(show_spinner="Setting up browser environment...")
 def install_playwright():
     """Ensures Playwright browser binaries are installed and cached."""
     try:
         st.info("Attempting to run 'playwright install chromium'...")
-        
-        # Use subprocess to run the command in the shell
         result = subprocess.run(
             [sys.executable, "-m", "playwright", "install", "chromium"],
             capture_output=True,
             text=True,
-            check=True # Raise error if command fails
+            check=True
         )
         st.success(f"Playwright install successful: {result.stdout.strip()}")
         return True
     except subprocess.CalledProcessError as e:
         st.error(f"Playwright installation failed. Stderr: {e.stderr.strip()}")
-        st.error("Please ensure packages.txt contains 'chromium'.")
+        st.error("Please ensure the environment supports running external commands.")
         return False
     except Exception as e:
         st.error(f"Unexpected error during Playwright setup: {e}")
         return False
 
-def run_portconnect_login():
-    """
-    Executes the Playwright script to navigate, log in, and check the post-login state.
-    """
-    # Ensure installation runs and is cached
-    if not install_playwright():
-        return
+# --- Core Scraping Logic ---
 
-    st.info(f"Starting PortConnect login sequence for: {PORTCONNECT_URL}")
+def run_crawler(container_list, status_placeholder):
+    """
+    Executes the Playwright script to log in, search, and scrape results.
+    """
+    if not install_playwright():
+        return pd.DataFrame(), False
+
+    status_placeholder.info(f"Starting crawler for {len(container_list)} containers...")
+    
+    # Format containers for input (newline separated)
+    container_input_text = "\n".join(container_list)
     
     try:
         with sync_playwright() as p:
-            # Launch the browser
-            # Setting 'slow_mo' for debugging might be helpful, but generally keep it 0
-            # NOTE: Keep headless=True for cloud deployment. Change to False ONLY for local debugging.
-            browser = p.chromium.launch(headless=True, timeout=30000) 
+            # Launch the browser in headless mode
+            browser = p.chromium.launch(headless=True, timeout=30000)
             page = browser.new_page()
             
-            st.markdown("1. Navigating to PortConnect...")
+            # --- 1. Navigation ---
+            status_placeholder.info("1. Navigating to PortConnect...")
             page.goto(PORTCONNECT_URL, wait_until="load", timeout=20000)
             
-            # --- LOGIN STEPS ---
-            
-            # 2. Click the Sign-in/Sign-up dropdown menu (Wait for the dropdown link to be visible)
+            # --- 2. Login Sequence ---
             DROPDOWN_SELECTOR = "#navbar > ul.nav.navbar-top-links.navbar-right > li > a"
-            st.markdown(f"2. Clicking dropdown: `{DROPDOWN_SELECTOR}`")
-            page.wait_for_selector(DROPDOWN_SELECTOR, state="visible", timeout=10000).click()
-
-            # 3. Click the Sign-in link inside the dropdown (Wait for the sign-in link to be visible after dropdown opens)
             SIGN_IN_LINK_SELECTOR = "#navbar > ul.nav.navbar-top-links.navbar-right > li > ul > li:nth-child(1) > a"
-            st.markdown(f"3. Clicking Sign-in link: `{SIGN_IN_LINK_SELECTOR}`")
-            page.wait_for_selector(SIGN_IN_LINK_SELECTOR, state="visible", timeout=10000).click()
-            
-            # The click usually triggers a redirect or modal, wait for the login page URL or elements
-            st.markdown("4. Waiting for the login form to load...")
-            # Wait for the email input field to appear, confirming the login form is ready
             EMAIL_SELECTOR = "#signInName"
-            page.wait_for_selector(EMAIL_SELECTOR, state="visible", timeout=15000)
-            
-            # 5. Input username and password
             PASSWORD_SELECTOR = "#password"
             SUBMIT_BUTTON_SELECTOR = "#next"
             
-            st.markdown(f"5. Filling email: `{USERNAME}`")
-            page.fill(EMAIL_SELECTOR, USERNAME)
+            status_placeholder.info("2. Clicking Sign-in/Sign-up dropdown...")
+            page.wait_for_selector(DROPDOWN_SELECTOR, state="visible", timeout=10000).click()
+
+            status_placeholder.info("3. Clicking Sign-in link...")
+            page.wait_for_selector(SIGN_IN_LINK_SELECTOR, state="visible", timeout=10000).click()
             
-            st.markdown(f"6. Filling password: `********`")
+            status_placeholder.info("4. Filling login form...")
+            # Wait for the login form to load (it might be a redirect or a modal)
+            page.wait_for_selector(EMAIL_SELECTOR, state="visible", timeout=15000)
+            
+            page.fill(EMAIL_SELECTOR, USERNAME)
             page.fill(PASSWORD_SELECTOR, PASSWORD)
             
-            # 7. Click the submit button
-            st.markdown(f"7. Clicking Sign-in button: `{SUBMIT_BUTTON_SELECTOR}`")
-            # Click and wait for navigation to the next page
+            status_placeholder.info("5. Submitting login...")
             page.click(SUBMIT_BUTTON_SELECTOR)
-
-            # 8. Check post-login status (Wait for successful navigation or a visible error message)
-            st.markdown("8. Waiting for post-login page load...")
+            
+            # Wait for successful navigation to the post-login state (URL pattern)
             page.wait_for_url(PORTCONNECT_URL + "*", timeout=15000)
             
-            current_url = page.url
-            title = page.title()
+            # --- 3. Navigate to Search ---
+            TRACK_TRACE_MENU = 'a:text("Track and Trace")' # Using text content for reliability
+            SEARCH_LINK = 'a[href="/#/track-trace/search"]'
+            
+            status_placeholder.info("6. Navigating to Track and Trace -> Search...")
+            # Click the dropdown menu
+            page.click(TRACK_TRACE_MENU)
+            # Click the search link inside the dropdown
+            page.wait_for_selector(SEARCH_LINK, state="visible", timeout=10000).click()
+            
+            # Wait for the search page URL to load
+            page.wait_for_url("*/track-trace/search", timeout=15000)
+            
+            # --- 4. Perform Search ---
+            SEARCH_BUTTON_SELECTOR = 'div.search-item-button > button.btn.btn-primary:text("Search")'
+            
+            status_placeholder.info("7. Inputting container numbers and searching...")
+            # Input container numbers
+            page.wait_for_selector(CONTAINER_INPUT_SELECTOR, state="visible", timeout=10000).fill(container_input_text)
+            
+            # Click the search button
+            page.click(SEARCH_BUTTON_SELECTOR)
+            
+            # --- 5. Scrape Results ---
+            RESULTS_TABLE_BODY_SELECTOR = "#tblImport > tbody.ng-star-inserted"
+            
+            status_placeholder.info("8. Waiting for search results...")
+            
+            # Wait for the table body to contain results (or for a common load indicator to disappear)
+            # We wait for the results table to appear. If it doesn't appear in time, we assume no results/error.
+            try:
+                page.wait_for_selector(RESULTS_TABLE_BODY_SELECTOR, state="attached", timeout=30000)
+            except PlaywrightTimeoutError:
+                status_placeholder.warning("Search results table not found or timed out. This may indicate an empty result set or a login/navigation error.")
+                browser.close()
+                return pd.DataFrame(), True # Return empty dataframe but successful navigation
+
+            status_placeholder.info("9. Extracting data from results table...")
+            
+            # Scrape all rows
+            rows = page.locator(f'{RESULTS_TABLE_BODY_SELECTOR} tr').all()
+            scraped_data = []
+
+            # Define headers (inferred from the table structure)
+            headers = [
+                'Details_Icon', 'Port', 'Container_Number', 'Flow', 
+                'Vessel_Voyage', 'Date_Time_Hidden', 'Status_Location', 
+                'Field_7_Hidden', 'Field_8_Hidden', 'Field_9_Hidden', 
+                'Field_10_Hidden', 'Field_11_Hidden', 'Customs_Status_Icon', 
+                'Field_13_Empty', 'Field_14_Hidden', 'Field_15_Hidden', 
+                'Field_16_Hidden', 'Field_17_Hidden', 'Date_Time_Empty', 'Clock_Icon'
+            ]
+            
+            for row in rows:
+                cols = row.locator('td').all_text_contents()
+                # Clean up extracted texts
+                cleaned_cols = [c.strip().replace('\n', ' ') for c in cols]
+                # Filter out the empty column at index 13 if it's always empty
+                if len(cleaned_cols) == 20: # Match the inferred 20 columns
+                    # The first column is usually an icon, skip it in clean data if it's not useful
+                    scraped_data.append(cleaned_cols[1:]) # Start from Port
             
             browser.close()
+
+            # Create DataFrame
+            df = pd.DataFrame(scraped_data, columns=headers[1:])
             
-            # Final Status Output
-            if current_url.startswith(PORTCONNECT_URL):
-                 st.success(f"Login sequence completed. Browser is now on: {title} ({current_url})")
-                 st.info("Since test credentials were used, the app is likely stuck at a login error page or redirected back to the main site. If the URL changed, the submission was successful.")
-            else:
-                 st.warning(f"Login sequence resulted in unexpected URL: {current_url}")
+            status_placeholder.success(f"Scraping complete! Found {len(df)} results.")
+            return df, True
             
-    except PlaywrightTimeoutError:
-        st.error(f"Playwright timed out while waiting for an element or navigation. Current URL: {page.url if 'page' in locals() else 'N/A'}")
+    except PlaywrightTimeoutError as e:
+        status_placeholder.error(f"Playwright timed out during execution: {e}. Check selectors or network connection.")
+        try:
+            browser.close()
+        except:
+            pass
+        return pd.DataFrame(), False
     except Exception as e:
-        st.error(f"An unexpected Playwright error occurred: {e}")
+        status_placeholder.error(f"An unexpected error occurred during crawling: {e}")
+        st.exception(e)
+        try:
+            browser.close()
+        except:
+            pass
+        return pd.DataFrame(), False
 
-# --- STREAMLIT APP LAYOUT ---
+# --- Streamlit App UI ---
 
-st.title("🚢 PortConnect Crawler (Playwright)")
-st.write("This page executes the PortConnect login routine using Playwright's headless browser.")
+def main():
+    st.set_page_config(page_title="PortConnect Container Crawler", layout="centered")
+    st.title("🚢 PortConnect Container Tracker")
+    st.markdown("Upload a text file containing container numbers (one per line) to automatically log in and retrieve tracking information.")
 
-if st.button("Run PortConnect Login Test"):
-    run_portconnect_login()
+    # --- File Uploader ---
+    uploaded_file = st.file_uploader(
+        "Upload Container List (Text File)", 
+        type=['txt'], 
+        help="Drag and drop a .txt file. Each container number should be on a new line."
+    )
 
-st.info("Note: This script relies on the `install_playwright` function to ensure the necessary browser binaries (Chromium) are available in the Streamlit Cloud environment.")
+    container_numbers = []
+    if uploaded_file is not None:
+        # To read file as string and split by lines
+        try:
+            string_data = uploaded_file.getvalue().decode("utf-8")
+            # Remove empty lines and duplicates
+            container_numbers = [
+                c.strip() 
+                for c in string_data.splitlines() 
+                if c.strip()
+            ]
+            if container_numbers:
+                st.success(f"Read {len(container_numbers)} unique container numbers.")
+                st.expander("Preview Container Numbers").code("\n".join(container_numbers[:10]) + ("\n..." if len(container_numbers) > 10 else ""))
+            else:
+                st.warning("The file is empty or contains no valid container numbers.")
+        except Exception as e:
+            st.error(f"Error reading file: {e}")
+            container_numbers = []
 
+    # --- Execution Button ---
+    status_placeholder = st.empty()
+    
+    if st.button("Start Search & Scrape", disabled=not container_numbers):
+        if not container_numbers:
+            status_placeholder.warning("Please upload a file with container numbers first.")
+            return
+
+        # Run the crawler logic
+        df_results, success_status = run_crawler(container_numbers, status_placeholder)
+        
+        if success_status:
+            if not df_results.empty:
+                # --- Display Results ---
+                st.subheader("✅ Scraped Results Preview")
+                st.dataframe(df_results)
+                
+                # --- CSV Download Button ---
+                csv_buffer = io.StringIO()
+                df_results.to_csv(csv_buffer, index=False)
+                st.download_button(
+                    label="⬇️ Download Results as CSV",
+                    data=csv_buffer.getvalue(),
+                    file_name='portconnect_tracking_results.csv',
+                    mime='text/csv',
+                    key='download-csv'
+                )
+            else:
+                st.info("The search completed but returned no results. Please check your container numbers and the website status.")
+
+if __name__ == "__main__":
+    main()
