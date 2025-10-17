@@ -48,24 +48,25 @@ def execute_login_sequence(page, USERNAME, PASSWORD, PORTCONNECT_URL, status_pla
     PASSWORD_SELECTOR = "#password"
     # Selector for the Submit/Next button on the B2C login page
     SUBMIT_BUTTON_SELECTOR = "#next"
-    # NEW Selector: A key element expected on the post-login dashboard
-    TRACK_AND_TRACE_SELECTOR = "#pc-menu > li:nth-child(2) > a"
+    
+    # Track and Trace Dropdown Link (Main Menu Link)
+    TRACK_AND_TRACE_MENU_LINK = "#pc-menu > li:nth-child(2) > a"
+    
+    # Search Link (Nested inside the Track and Trace Dropdown)
+    # Uses the href attribute for a precise and reliable locator
+    TRACK_AND_TRACE_SEARCH_LINK = "a[href='/#/track-trace/search']"
 
     try:
         # --- 2. Click Dropdown ---
         status_placeholder.info("1. Clicking Sign-in/Sign-up dropdown...")
-        # Wait until the dropdown link is visible and click it
         page.wait_for_selector(DROPDOWN_SELECTOR, state="visible", timeout=10000).click()
 
         # --- 3. Click Sign-in Link ---
         status_placeholder.info("2. Clicking Sign-in link...")
-        # Wait until the Sign-in link appears in the dropdown and click it
         page.wait_for_selector(SIGN_IN_LINK_SELECTOR, state="visible", timeout=10000).click()
 
         # --- 4. Wait for Login Form (B2C Redirect) ---
         status_placeholder.info("3. Waiting for the B2C login form to load...")
-        # The click above triggers a redirect to the B2C domain.
-        # Wait for the email input field to appear, confirming the B2C form is ready.
         page.wait_for_selector(EMAIL_SELECTOR, state="visible", timeout=15000)
 
         # --- 5. Fill Login Form ---
@@ -75,32 +76,44 @@ def execute_login_sequence(page, USERNAME, PASSWORD, PORTCONNECT_URL, status_pla
 
         # --- 6. Submit Login ---
         status_placeholder.info("5. Submitting login...")
-        # Submitting the form initiates the final redirect back to the app
         page.click(SUBMIT_BUTTON_SELECTOR)
 
-        # --- 7. Post-Login URL Wait (Previous Debugged Fix) ---
+        # --- 7. Post-Login URL Wait ---
         status_placeholder.info("6. Waiting for post-login URL change and network idle...")
         # Wait for the successful final redirect back to the app URL and network stability.
         page.wait_for_url(PORTCONNECT_URL + "*", wait_until="networkidle", timeout=30000)
         
-        # --- 8. Wait for Key Dashboard Element (Fix for new timeout) ---
-        status_placeholder.info(f"7. Confirming key dashboard element is ready: '{TRACK_AND_TRACE_SELECTOR}'...")
-        # Even after network idle, SPAs may take a moment to render the final component (e.g., navigation).
-        # We explicitly wait for the next intended interaction target to resolve the Page.click timeout.
-        page.wait_for_selector(TRACK_AND_TRACE_SELECTOR, state="visible", timeout=15000)
+        # --- 8. Navigate to Search ---
+        status_placeholder.info("7. Navigating to Track and Trace Search page...")
+        
+        # 8a. Click the main menu link to open the dropdown
+        # This also acts as a confirmation that the dashboard has fully loaded.
+        page.wait_for_selector(TRACK_AND_TRACE_MENU_LINK, state="visible", timeout=15000).click()
 
-        status_placeholder.success("Login successful and dashboard confirmed ready!")
+        # 8b. Wait for the 'Search' link to appear in the dropdown and click it
+        # This action triggers navigation to the final search page
+        page.wait_for_selector(TRACK_AND_TRACE_SEARCH_LINK, state="visible", timeout=10000).click()
+
+        # 8c. Wait for the final URL change (to confirm navigation completed)
+        page.wait_for_url(PORTCONNECT_URL + "#/track-trace/search", wait_until="load", timeout=15000)
+
+        status_placeholder.success("Login successful and navigation to Track & Trace Search confirmed!")
         return True
 
     except Exception as e:
-        status_placeholder.error(f"Login failed: {e}")
+        status_placeholder.error(f"Login or navigation failed: {e}")
         return False
-
 # --- Core Scraping Logic ---
+
+# Placeholder for a missing function/variable, define it here for completeness
+CONTAINER_INPUT_SELECTOR = '#container-input-textarea' # Assuming a common ID for container input
 
 def run_crawler(container_list, status_placeholder):
     """
     Executes the Playwright script to log in, search, and scrape results.
+    
+    The navigation to the 'Track and Trace Search' page is handled internally 
+    by the execute_login_sequence function, removing duplication.
     """
     if not install_playwright():
         return pd.DataFrame(), False
@@ -120,52 +133,39 @@ def run_crawler(container_list, status_placeholder):
             status_placeholder.info("1. Navigating to PortConnect...")
             page.goto(PORTCONNECT_URL, wait_until="load", timeout=30000)
             
-            # ---- 2. login ----
-            execute_login_sequence(page, USERNAME, PASSWORD, PORTCONNECT_URL, status_placeholder)
+            # ---- 2. Login and Navigation to Search ----
+            # This function logs in AND navigates to the search page.
+            if not execute_login_sequence(page, USERNAME, PASSWORD, PORTCONNECT_URL, status_placeholder):
+                browser.close()
+                return pd.DataFrame(), False
 
-            
-            # --- 3. Navigate to Search ---
-            TRACK_TRACE_MENU = 'a:text("Track and Trace")' # Using text content for reliability
-            SEARCH_LINK = 'a[href="/#/track-trace/search"]'
-            
-            status_placeholder.info("6. Navigating to Track and Trace -> Search...")
-            
-            # Click the dropdown menu to make the search link visible
-            page.click(TRACK_TRACE_MENU)
-
-            # Click the search link, and wait for the subsequent navigation to complete
-            page.wait_for_selector(SEARCH_LINK, state="visible", timeout=10000)
-            page.click(
-                SEARCH_LINK, 
-                wait_until="networkidle", 
-                timeout=30000
-            ) 
-
-            # --- 4. Perform Search ---
+            # --- 3. Perform Search ---
             SEARCH_BUTTON_SELECTOR = 'div.search-item-button > button.btn.btn-primary:text("Search")'
             
-            status_placeholder.info("7. Inputting container numbers and searching...")
-            # Input container numbers
+            status_placeholder.info("8. Inputting container numbers and searching...") # Step 8, continuing from login sequence's Step 7
+            
+            # Input container numbers. The page should already be on the correct search screen.
             # We wait for the container input field to be visible on the new search page
             page.wait_for_selector(CONTAINER_INPUT_SELECTOR, state="visible", timeout=10000).fill(container_input_text)
             
             # Click the search button
             page.click(SEARCH_BUTTON_SELECTOR)
             
-            # --- 5. Scrape Results ---
+            # --- 4. Scrape Results ---
             RESULTS_TABLE_BODY_SELECTOR = "#tblImport > tbody.ng-star-inserted"
             
-            status_placeholder.info("8. Waiting for search results...")
+            status_placeholder.info("9. Waiting for search results...")
             
             # Wait for the table body to appear after the search submission
             try:
                 page.wait_for_selector(RESULTS_TABLE_BODY_SELECTOR, state="attached", timeout=45000)
             except PlaywrightTimeoutError:
-                status_placeholder.warning("Search results table not found or timed out. This may indicate an empty result set or a login/navigation error.")
+                status_placeholder.warning("Search results table not found or timed out. This may indicate an empty result set or an error.")
                 browser.close()
+                # Return True for success status if we suspect empty results are normal
                 return pd.DataFrame(), True 
 
-            status_placeholder.info("9. Extracting data from results table...")
+            status_placeholder.info("10. Extracting data from results table...")
             
             # Scrape all rows
             rows = page.locator(f'{RESULTS_TABLE_BODY_SELECTOR} tr').all()
@@ -173,11 +173,11 @@ def run_crawler(container_list, status_placeholder):
 
             # Define headers (inferred from the table structure)
             headers = [
-                'Details_Icon', 'Port', 'Container_Number', 'Flow', 
-                'Vessel_Voyage', 'Date_Time_Hidden', 'Status_Location', 
-                'Field_7_Hidden', 'Field_8_Hidden', 'Field_9_Hidden', 
-                'Field_10_Hidden', 'Field_11_Hidden', 'Customs_Status_Icon', 
-                'Field_13_Empty', 'Field_14_Hidden', 'Field_15_Hidden', 
+                'Details_Icon', 'Port', 'Container_Number', 'Flow',  
+                'Vessel_Voyage', 'Date_Time_Hidden', 'Status_Location',  
+                'Field_7_Hidden', 'Field_8_Hidden', 'Field_9_Hidden',  
+                'Field_10_Hidden', 'Field_11_Hidden', 'Customs_Status_Icon',  
+                'Field_13_Empty', 'Field_14_Hidden', 'Field_15_Hidden',  
                 'Field_16_Hidden', 'Field_17_Hidden', 'Date_Time_Empty', 'Clock_Icon'
             ]
             
@@ -199,7 +199,7 @@ def run_crawler(container_list, status_placeholder):
             return df, True
             
     except PlaywrightTimeoutError as e:
-        status_placeholder.error(f"Playwright timed out during execution: {e}. The maximum wait time of 45 seconds was exceeded during one of the navigation steps. Please check the website's status or network connectivity.")
+        status_placeholder.error(f"Playwright timed out during execution: {e}. A critical step exceeded the maximum wait time.")
         try:
             browser.close()
         except:
