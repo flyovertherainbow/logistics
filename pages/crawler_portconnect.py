@@ -49,14 +49,15 @@ def execute_login_sequence(page, USERNAME, PASSWORD, PORTCONNECT_URL, status_pla
     SUBMIT_BUTTON_SELECTOR = "#next"
     
     # --- Critical Post-Login/Dashboard Selector ---
-    # The failing selector ("#pc-menu") is replaced with the robust, text-based 
-    # selector for the first clickable menu item, which must be visible post-login.
-    POST_LOGIN_MENU_SELECTOR = 'a:text("Track and Trace")'
+    # UPDATED: Changed from 'a:text("Track and Trace")' to the position-based CSS selector
+    # #pc-menu > li:nth-child(2) as suggested to fix the timeout error.
+    POST_LOGIN_MENU_SELECTOR = "#pc-menu > li:nth-child(2)"
     
-    # Track and Trace Dropdown Link (Main Menu Link) - kept for clarity, though it is the same as POST_LOGIN_MENU_SELECTOR now
-    TRACK_AND_TRACE_MENU_LINK = 'a:text("Track and Trace")' # Using text for stability
+    # Track and Trace Dropdown Link (Main Menu Link) - This is now the robust selector
+    TRACK_AND_TRACE_MENU_LINK = POST_LOGIN_MENU_SELECTOR 
     
     # Search Link (Nested inside the Track and Trace Dropdown)
+    # This selector remains a[href='/#/track-trace/search'] as it is specific and reliable.
     TRACK_AND_TRACE_SEARCH_LINK = "a[href='/#/track-trace/search']"
 
     try:
@@ -76,8 +77,8 @@ def execute_login_sequence(page, USERNAME, PASSWORD, PORTCONNECT_URL, status_pla
         
         # --- 4. Post-Login Wait (Resilient Check) ---
         # Wait for the "Track and Trace" menu link to appear, confirming successful dashboard load.
-        status_placeholder.info("3. Waiting for authenticated dashboard to load (Waiting for 'Track and Trace' link)...")
-        # Timeout reverted from 60000ms to 45000ms
+        status_placeholder.info("3. Waiting for authenticated dashboard to load (Waiting for position #pc-menu > li:nth-child(2))...")
+        # Timeout remains at 45000ms
         page.wait_for_selector(POST_LOGIN_MENU_SELECTOR, state="visible", timeout=45000)
         
         status_placeholder.success("Login successful! Dashboard element confirmed.")
@@ -85,7 +86,7 @@ def execute_login_sequence(page, USERNAME, PASSWORD, PORTCONNECT_URL, status_pla
         # --- 5. Navigate to Search ---
         status_placeholder.info("4. Navigating to Track and Trace Search page...")
         
-        # 5a. Click the 'Track and Trace' link to open the dropdown (it's already waited for in step 4)
+        # 5a. Click the 'Track and Trace' link to open the dropdown (using the robust position selector)
         page.click(TRACK_AND_TRACE_MENU_LINK, timeout=15000)
 
         # 5b. Wait for the 'Search' link to appear and click it
