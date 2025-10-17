@@ -49,16 +49,17 @@ def execute_login_sequence(page, USERNAME, PASSWORD, PORTCONNECT_URL, status_pla
     SUBMIT_BUTTON_SELECTOR = "#next"
     
     # --- Critical Post-Login/Dashboard Selector ---
-    # UPDATED: We are now targeting the specific link *inside* the second menu item 
-    # (the 'Track and Trace' link) to confirm the menu has rendered and is clickable.
-    # This targets the anchor tag (a) immediately inside the list item (li) at position 2.
-    POST_LOGIN_MENU_SELECTOR = "#pc-menu > li:nth-child(2) > a"
+    # REVISED: Reverting to a specific text selector for the main menu link 
+    # to find the anchor element containing 'Track and Trace'. This is highly
+    # effective if the previous failures were due to element visibility timing.
+    POST_LOGIN_MENU_SELECTOR = 'a:text("Track and Trace")'
     
     # Track and Trace Dropdown Link (Main Menu Link) - This is now the robust selector
     TRACK_AND_TRACE_MENU_LINK = POST_LOGIN_MENU_SELECTOR 
     
     # Search Link (Nested inside the Track and Trace Dropdown)
-    # This selector remains a[href='/#/track-trace/search'] as it is specific and reliable.
+    # The image confirms 'Search' is the first link. We can use either the specific 
+    # href or its text/position within the dropdown. We'll stick to the reliable href.
     TRACK_AND_TRACE_SEARCH_LINK = "a[href='/#/track-trace/search']"
 
     try:
@@ -78,29 +79,26 @@ def execute_login_sequence(page, USERNAME, PASSWORD, PORTCONNECT_URL, status_pla
         
         # --- 4. Post-Login Wait (Resilient Check) ---
         # Wait for the "Track and Trace" link to appear, confirming successful dashboard load.
-        status_placeholder.info("3. Waiting for authenticated dashboard to load (Waiting for position #pc-menu > li:nth-child(2) > a)...")
-        # Timeout remains at 45000ms
-        # We also wait for the element to be 'attached' to ensure it's in the DOM structure.
-        page.wait_for_selector(POST_LOGIN_MENU_SELECTOR, state="attached", timeout=45000) 
-        
-        # Wait for it to be visible/clickable
-        page.wait_for_selector(POST_LOGIN_MENU_SELECTOR, state="visible", timeout=15000)
+        status_placeholder.info("3. Waiting for authenticated dashboard to load (Waiting for 'Track and Trace' link)...")
+        # Timeout remains at 45000ms. We rely only on 'visible' for the final anchor tag.
+        page.wait_for_selector(POST_LOGIN_MENU_SELECTOR, state="visible", timeout=45000) 
 
         status_placeholder.success("Login successful! Dashboard element confirmed.")
 
         # --- 5. Navigate to Search ---
         status_placeholder.info("4. Navigating to Track and Trace Search page...")
         
-        # 5a. Click the 'Track and Trace' link to open the dropdown (using the robust position selector)
+        # 5a. Click the 'Track and Trace' link to open the dropdown 
         page.click(TRACK_AND_TRACE_MENU_LINK, timeout=15000)
 
         # 5b. Wait for the 'Search' link to appear and click it
+        status_placeholder.info("Clicking Search link...")
         page.wait_for_selector(TRACK_AND_TRACE_SEARCH_LINK, state="visible", timeout=10000)
         
         # Click the search link, and wait for the subsequent navigation to complete
         page.click(
             TRACK_AND_TRACE_SEARCH_LINK, 
-            wait_until="load", # Less strict than 'networkidle'
+            wait_until="load", 
             timeout=30000
         )
         
