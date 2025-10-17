@@ -37,71 +37,81 @@ def install_playwright():
 
 #login
 def execute_login_sequence(page, USERNAME, PASSWORD, PORTCONNECT_URL, status_placeholder):
+    """
+    Performs the login and navigates to the Track & Trace Search page.
+    Uses element waiting instead of strict networkidle for better resilience.
+    """
     # --- 1. Define Selectors ---
-    # Selector for the main Sign-in/Sign-up dropdown link
     DROPDOWN_SELECTOR = "#navbar > ul.nav.navbar-top-links.navbar-right > li > a"
-    # Selector for the Sign-in link inside the opened dropdown
     SIGN_IN_LINK_SELECTOR = "#navbar > ul.nav.navbar-top-links.navbar-right > li > ul > li:nth-child(1) > a"
-    # Selector for the Email/Username input field on the B2C login page
     EMAIL_SELECTOR = "#signInName"
-    # Selector for the Password input field on the B2C login page
     PASSWORD_SELECTOR = "#password"
-    # Selector for the Submit/Next button on the B2C login page
     SUBMIT_BUTTON_SELECTOR = "#next"
     
+    # --- Critical Post-Login/Dashboard Selector ---
+    # This selector must exist only after successful login.
+    # We will use the main application menu link as the reliable signal.
+    POST_LOGIN_MENU_SELECTOR = "#pc-menu" 
+    
     # Track and Trace Dropdown Link (Main Menu Link)
-    TRACK_AND_TRACE_MENU_LINK = "#pc-menu > li:nth-child(2) > a"
+    TRACK_AND_TRACE_MENU_LINK = 'a:text("Track and Trace")' # Using text for stability
     
     # Search Link (Nested inside the Track and Trace Dropdown)
-    # Uses the href attribute for a precise and reliable locator
     TRACK_AND_TRACE_SEARCH_LINK = "a[href='/#/track-trace/search']"
 
     try:
-        # --- 2. Click Dropdown ---
-        status_placeholder.info("1. Clicking Sign-in/Sign-up dropdown...")
+        # --- 2. Click Dropdown & Sign-in Link ---
+        status_placeholder.info("1. Initiating Sign-in process...")
         page.wait_for_selector(DROPDOWN_SELECTOR, state="visible", timeout=10000).click()
-
-        # --- 3. Click Sign-in Link ---
-        status_placeholder.info("2. Clicking Sign-in link...")
         page.wait_for_selector(SIGN_IN_LINK_SELECTOR, state="visible", timeout=10000).click()
 
-        # --- 4. Wait for Login Form (B2C Redirect) ---
-        status_placeholder.info("3. Waiting for the B2C login form to load...")
+        # --- 3. Fill and Submit Login Form (B2C Redirect) ---
+        status_placeholder.info("2. Filling and submitting B2C login form...")
         page.wait_for_selector(EMAIL_SELECTOR, state="visible", timeout=15000)
-
-        # --- 5. Fill Login Form ---
-        status_placeholder.info("4. Filling email and password...")
         page.fill(EMAIL_SELECTOR, USERNAME)
         page.fill(PASSWORD_SELECTOR, PASSWORD)
-
-        # --- 6. Submit Login ---
-        status_placeholder.info("5. Submitting login...")
+        
+        # Click the submit button
         page.click(SUBMIT_BUTTON_SELECTOR)
+        
+        # --- 4. Post-Login Wait (Resilient Check) ---
+        # Instead of waiting for a URL and 'networkidle' (which often fails), 
+        # we wait for a specific dashboard element to confirm success.
+        status_placeholder.info("3. Waiting for authenticated dashboard to load...")
+        page.wait_for_selector(POST_LOGIN_MENU_SELECTOR, state="visible", timeout=45000)
+        
+        status_placeholder.success("Login successful! Dashboard element confirmed.")
 
-        # --- 7. Post-Login URL Wait ---
-        status_placeholder.info("6. Waiting for post-login URL change and network idle...")
-        # Wait for the successful final redirect back to the app URL and network stability.
-        page.wait_for_url(PORTCONNECT_URL + "*", wait_until="networkidle", timeout=30000)
+        # --- 5. Navigate to Search ---
+        status_placeholder.info("4. Navigating to Track and Trace Search page...")
         
-        # --- 8. Navigate to Search ---
-        status_placeholder.info("7. Navigating to Track and Trace Search page...")
-        
-        # 8a. Click the main menu link to open the dropdown
-        # This also acts as a confirmation that the dashboard has fully loaded.
+        # 5a. Click the 'Track and Trace' link to open the dropdown
         page.wait_for_selector(TRACK_AND_TRACE_MENU_LINK, state="visible", timeout=15000).click()
 
-        # 8b. Wait for the 'Search' link to appear in the dropdown and click it
-        # This action triggers navigation to the final search page
-        page.wait_for_selector(TRACK_AND_TRACE_SEARCH_LINK, state="visible", timeout=10000).click()
+        # 5b. Wait for the 'Search' link to appear and click it
+        page.wait_for_selector(TRACK_AND_TRACE_SEARCH_LINK, state="visible", timeout=10000)
+        
+        # Click the search link, and wait for the subsequent navigation to complete
+        page.click(
+            TRACK_AND_TRACE_SEARCH_LINK, 
+            wait_until="load", # Less strict than 'networkidle'
+            timeout=30000
+        )
+        
+        # Wait for the specific container input field to confirm the page has loaded
+        # This is the new selector we defined in the other file.
+        CONTAINER_INPUT_SELECTOR = '#container-input-textarea'
+        page.wait_for_selector(CONTAINER_INPUT_SELECTOR, state="visible", timeout=15000)
 
-        # 8c. Wait for the final URL change (to confirm navigation completed)
-        page.wait_for_url(PORTCONNECT_URL + "#/track-trace/search", wait_until="load", timeout=15000)
 
-        status_placeholder.success("Login successful and navigation to Track & Trace Search confirmed!")
+        status_placeholder.success("Navigation to Track & Trace Search confirmed!")
         return True
 
+    except PlaywrightTimeoutError as e:
+        status_placeholder.error(f"Login or Navigation Timeout Error: {e}. Check credentials or increase the timeout limit.")
+        return False
     except Exception as e:
-        status_placeholder.error(f"Login or navigation failed: {e}")
+        status_placeholder.error(f"An unexpected error occurred during login sequence: {e}")
         return False
 # --- Core Scraping Logic ---
 
