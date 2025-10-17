@@ -49,11 +49,11 @@ def execute_login_sequence(page, USERNAME, PASSWORD, PORTCONNECT_URL, status_pla
     SUBMIT_BUTTON_SELECTOR = "#next"
     
     # --- Critical Post-Login/Dashboard Selector ---
-    # This selector must exist only after successful login.
-    # We will use the main application menu link as the reliable signal.
-    POST_LOGIN_MENU_SELECTOR = "#pc-menu" 
+    # The failing selector ("#pc-menu") is replaced with the robust, text-based 
+    # selector for the first clickable menu item, which must be visible post-login.
+    POST_LOGIN_MENU_SELECTOR = 'a:text("Track and Trace")'
     
-    # Track and Trace Dropdown Link (Main Menu Link)
+    # Track and Trace Dropdown Link (Main Menu Link) - kept for clarity, though it is the same as POST_LOGIN_MENU_SELECTOR now
     TRACK_AND_TRACE_MENU_LINK = 'a:text("Track and Trace")' # Using text for stability
     
     # Search Link (Nested inside the Track and Trace Dropdown)
@@ -75,9 +75,9 @@ def execute_login_sequence(page, USERNAME, PASSWORD, PORTCONNECT_URL, status_pla
         page.click(SUBMIT_BUTTON_SELECTOR)
         
         # --- 4. Post-Login Wait (Resilient Check) ---
-        # Instead of waiting for a URL and 'networkidle' (which often fails), 
-        # we wait for a specific dashboard element to confirm success.
-        status_placeholder.info("3. Waiting for authenticated dashboard to load...")
+        # Wait for the "Track and Trace" menu link to appear, confirming successful dashboard load.
+        status_placeholder.info("3. Waiting for authenticated dashboard to load (Waiting for 'Track and Trace' link)...")
+        # Timeout reverted from 60000ms to 45000ms
         page.wait_for_selector(POST_LOGIN_MENU_SELECTOR, state="visible", timeout=45000)
         
         status_placeholder.success("Login successful! Dashboard element confirmed.")
@@ -85,8 +85,8 @@ def execute_login_sequence(page, USERNAME, PASSWORD, PORTCONNECT_URL, status_pla
         # --- 5. Navigate to Search ---
         status_placeholder.info("4. Navigating to Track and Trace Search page...")
         
-        # 5a. Click the 'Track and Trace' link to open the dropdown
-        page.wait_for_selector(TRACK_AND_TRACE_MENU_LINK, state="visible", timeout=15000).click()
+        # 5a. Click the 'Track and Trace' link to open the dropdown (it's already waited for in step 4)
+        page.click(TRACK_AND_TRACE_MENU_LINK, timeout=15000)
 
         # 5b. Wait for the 'Search' link to appear and click it
         page.wait_for_selector(TRACK_AND_TRACE_SEARCH_LINK, state="visible", timeout=10000)
@@ -99,7 +99,6 @@ def execute_login_sequence(page, USERNAME, PASSWORD, PORTCONNECT_URL, status_pla
         )
         
         # Wait for the specific container input field to confirm the page has loaded
-        # This is the new selector we defined in the other file.
         CONTAINER_INPUT_SELECTOR = '#container-input-textarea'
         page.wait_for_selector(CONTAINER_INPUT_SELECTOR, state="visible", timeout=15000)
 
@@ -113,6 +112,7 @@ def execute_login_sequence(page, USERNAME, PASSWORD, PORTCONNECT_URL, status_pla
     except Exception as e:
         status_placeholder.error(f"An unexpected error occurred during login sequence: {e}")
         return False
+
 # --- Core Scraping Logic ---
 
 # Placeholder for a missing function/variable, define it here for completeness
