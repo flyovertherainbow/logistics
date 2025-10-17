@@ -49,9 +49,10 @@ def execute_login_sequence(page, USERNAME, PASSWORD, PORTCONNECT_URL, status_pla
     SUBMIT_BUTTON_SELECTOR = "#next"
     
     # --- Critical Post-Login/Dashboard Selector ---
-    # UPDATED: Changed from 'a:text("Track and Trace")' to the position-based CSS selector
-    # #pc-menu > li:nth-child(2) as suggested to fix the timeout error.
-    POST_LOGIN_MENU_SELECTOR = "#pc-menu > li:nth-child(2)"
+    # UPDATED: We are now targeting the specific link *inside* the second menu item 
+    # (the 'Track and Trace' link) to confirm the menu has rendered and is clickable.
+    # This targets the anchor tag (a) immediately inside the list item (li) at position 2.
+    POST_LOGIN_MENU_SELECTOR = "#pc-menu > li:nth-child(2) > a"
     
     # Track and Trace Dropdown Link (Main Menu Link) - This is now the robust selector
     TRACK_AND_TRACE_MENU_LINK = POST_LOGIN_MENU_SELECTOR 
@@ -76,11 +77,15 @@ def execute_login_sequence(page, USERNAME, PASSWORD, PORTCONNECT_URL, status_pla
         page.click(SUBMIT_BUTTON_SELECTOR)
         
         # --- 4. Post-Login Wait (Resilient Check) ---
-        # Wait for the "Track and Trace" menu link to appear, confirming successful dashboard load.
-        status_placeholder.info("3. Waiting for authenticated dashboard to load (Waiting for position #pc-menu > li:nth-child(2))...")
+        # Wait for the "Track and Trace" link to appear, confirming successful dashboard load.
+        status_placeholder.info("3. Waiting for authenticated dashboard to load (Waiting for position #pc-menu > li:nth-child(2) > a)...")
         # Timeout remains at 45000ms
-        page.wait_for_selector(POST_LOGIN_MENU_SELECTOR, state="visible", timeout=45000)
+        # We also wait for the element to be 'attached' to ensure it's in the DOM structure.
+        page.wait_for_selector(POST_LOGIN_MENU_SELECTOR, state="attached", timeout=45000) 
         
+        # Wait for it to be visible/clickable
+        page.wait_for_selector(POST_LOGIN_MENU_SELECTOR, state="visible", timeout=15000)
+
         status_placeholder.success("Login successful! Dashboard element confirmed.")
 
         # --- 5. Navigate to Search ---
@@ -113,6 +118,7 @@ def execute_login_sequence(page, USERNAME, PASSWORD, PORTCONNECT_URL, status_pla
     except Exception as e:
         status_placeholder.error(f"An unexpected error occurred during login sequence: {e}")
         return False
+
 
 # --- Core Scraping Logic ---
 
