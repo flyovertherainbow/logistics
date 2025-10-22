@@ -45,16 +45,22 @@ def automate_login():
             page.fill("#signInName", USERNAME)
             page.fill("#password", PASSWORD)
 
+            # Step 6: Click the Sign-in button
             page.click("#next")
-
-            st.info("Waiting for redirect...")
-            page.wait_for_url(PORTCONNECT_URL, timeout=15000)
-
-            # Check for member-only element (adjust selector as needed)
-            if page.locator("text=Container Search").is_visible():
+            
+            # Step 7: Wait briefly to allow redirect or error message to appear
+            page.wait_for_timeout(5000)  # Wait 5 seconds
+            
+            # Step 8: Log current URL
+            st.write("🔍 Current URL after login attempt:", page.url)
+            
+            # Step 9: Check for known login error messages
+            if page.locator("text=Incorrect username or password").is_visible():
+                st.error("❌ Login failed: Incorrect username or password.")
+            elif page.locator("text=Container Search").is_visible():
                 st.success("✅ Login successful and member page loaded.")
             else:
-                st.warning("❌ Login may have failed or member page not loaded.")
+                st.warning("⚠️ Login status unclear. No redirect or error message detected.")
 
             browser.close()
 
