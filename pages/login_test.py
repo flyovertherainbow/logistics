@@ -5,7 +5,7 @@ import sys
 
 # --- Configuration ---
 PORTCONNECT_URL = "https://www.portconnect.co.nz/#/home"
-USERNAME = "Calony.lam@gmail.com"
+USERNAME = "Calony.lam@gmail.co.nz"
 PASSWORD = "Eclyltd88$"
 
 # --- Playwright Installation ---
