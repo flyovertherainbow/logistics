@@ -45,20 +45,38 @@ def automate_login():
 
             st.info("Entering credentials...")
             page.fill("#signInName", USERNAME)
-            
-            st.write(f"📧 Email entered: {USERNAME}")
-
             page.fill("#password", PASSWORD)
-            st.write(f"🔒 Password entered: {PASSWORD}")  # Masked for security
-            st.info("Submitting login form...")
-            page.click("#next")
             
-            # Wait for redirect or page change
-            page.wait_for_timeout(10000)  # Give time for redirect
+            st.info("Submitting login form...")
+            
+            # Submit login form
+            page.click("#next")
+            st.write("🟢 Login form submitted.")
+            
+            # Wait for possible redirect or additional prompts
+            page.wait_for_timeout(8000)
+            
             # Log current URL
-            current_url = page.url
-            st.write("🔍 Current URL after login attempt:", current_url)
-
+            st.write("🔍 Current URL after login attempt:", page.url)
+            
+            # Log page title and some visible text for debugging
+            st.write("📄 Page title:", page.title())
+            visible_text = page.inner_text("body")
+            st.text_area("🔍 Page content snapshot:", visible_text[:1000])  # Show first 1000 chars
+            
+            # Check for additional steps
+            if page.locator("text=Keep me signed in").is_visible():
+                st.info("🔄 'Keep me signed in' prompt detected. Clicking 'Yes'...")
+                page.click("text=Yes")
+                page.wait_for_timeout(5000)
+            
+            # Check for login success
+            if page.url.startswith("https://www.portconnect.co.nz"):
+                st.success("✅ Login successful. Redirected to PortConnect.")
+            elif "portconnectauth.b2clogin.com" in page.url:
+                st.warning("⚠️ Still on Azure login page. Login may not have completed.")
+            else:
+                st.warning("⚠️ Login status unclear. Unexpected redirect.")
             # Check for login success or failure
             if page.locator("text=Incorrect username or password").is_visible():
                 st.error("❌ Login failed: Incorrect username or password.")
