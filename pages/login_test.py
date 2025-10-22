@@ -27,7 +27,7 @@ def install_playwright():
 def automate_login():
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+            browser = p.chromium.launch(headless=False)  # Set to True for silent mode
             page = browser.new_page()
 
             st.info("Navigating to PortConnect...")
@@ -39,26 +39,29 @@ def automate_login():
             st.info("Clicking Sign-in link...")
             page.click("#navbar > ul.nav.navbar-top-links.navbar-right > li > ul > li:nth-child(1) > a")
 
-            page.wait_for_selector("#signInName", timeout=10000)
+            # Wait for Azure B2C login page
+            page.wait_for_selector("#signInName", timeout=15000)
 
             st.info("Entering credentials...")
             page.fill("#signInName", USERNAME)
             page.fill("#password", PASSWORD)
 
-            # Step 6: Click the Sign-in button
+            st.info("Submitting login form...")
             page.click("#next")
-            
-            # Step 7: Wait briefly to allow redirect or error message to appear
-            page.wait_for_timeout(5000)  # Wait 5 seconds
-            
-            # Step 8: Log current URL
-            st.write("🔍 Current URL after login attempt:", page.url)
-            
-            # Step 9: Check for known login error messages
+
+            # Wait for redirect or page change
+            page.wait_for_timeout(5000)  # Give time for redirect
+            # Log current URL
+            current_url = page.url
+            st.write("🔍 Current URL after login attempt:", current_url)
+
+            # Check for login success or failure
             if page.locator("text=Incorrect username or password").is_visible():
                 st.error("❌ Login failed: Incorrect username or password.")
             elif page.locator("text=Container Search").is_visible():
                 st.success("✅ Login successful and member page loaded.")
+            elif "portconnectauth.b2clogin.com" in current_url:
+                st.warning("⚠️ Still on Azure login page. Login may not have completed.")
             else:
                 st.warning("⚠️ Login status unclear. No redirect or error message detected.")
 
@@ -70,7 +73,7 @@ def automate_login():
         st.error(f"🚨 Unexpected error: {e}")
 
 # --- Streamlit UI ---
-st.title("PortConnect Login Automation")
+st.title("🔐 PortConnect Login Automation")
 
 if install_playwright():
     if st.button("Run Login Automation"):
