@@ -49,7 +49,7 @@ def automate_login():
             st.write(f"📧 Email entered: {USERNAME}")
 
             page.fill("#password", PASSWORD)
-            st.write(f"🔒 Password entered: {'*' * len(PASSWORD)}")  # Masked for security
+            st.write(f"🔒 Password entered: {PASSWORD}")  # Masked for security
             st.info("Submitting login form...")
             page.click("#next")
             
