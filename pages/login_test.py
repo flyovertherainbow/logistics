@@ -27,7 +27,8 @@ def install_playwright():
 def automate_login():
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=False)  # Set to True for silent mode
+            #browser = p.chromium.launch(headless=False)  # Set to True for silent mode
+            browser = p.chromium.launch(headless=True)
             page = browser.new_page()
 
             st.info("Navigating to PortConnect...")
