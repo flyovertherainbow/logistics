@@ -1,76 +1,71 @@
 import streamlit as st
-import pandas as pd
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 import subprocess
 import sys
-import io
-import time
 
 # --- Configuration ---
 PORTCONNECT_URL = "https://www.portconnect.co.nz/#/home"
 USERNAME = "Calony.lam@gmail.com"
 PASSWORD = "Eclyltd88$"
-CONTAINER_INPUT_SELECTOR = "#txContainerInput"
 
-# --- Playwright Installation and Caching ---
-
+# --- Playwright Installation ---
 @st.cache_resource(show_spinner="Setting up browser environment...")
 def install_playwright():
-    """Ensures Playwright browser binaries are installed and cached."""
     try:
-        st.info("Attempting to run 'playwright install chromium'...")
-        result = subprocess.run(
+        subprocess.run(
             [sys.executable, "-m", "playwright", "install", "chromium"],
             capture_output=True,
             text=True,
             check=True
         )
-        st.success(f"Playwright install successful: {result.stdout.strip()}")
         return True
-    except subprocess.CalledProcessError as e:
-        st.error(f"Playwright installation failed. Stderr: {e.stderr.strip()}")
-        st.error("Please ensure the environment supports running external commands.")
-        return False
     except Exception as e:
-        st.error(f"Unexpected error during Playwright setup: {e}")
+        st.error(f"Playwright setup failed: {e}")
         return False
 
+# --- Login Automation ---
+def automate_login():
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
 
-from playwright.sync_api import sync_playwright
+            st.info("Navigating to PortConnect...")
+            page.goto(PORTCONNECT_URL)
 
-def run():
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)  # Set headless=True to run without UI
-        page = browser.new_page()
+            st.info("Clicking Sign-in/Sign-up dropdown...")
+            page.click("#navbar > ul.nav.navbar-top-links.navbar-right > li > a")
 
-        # Step 1: Go to PortConnect homepage
-        page.goto("https://www.portconnect.co.nz/#/home")
+            st.info("Clicking Sign-in link...")
+            page.click("#navbar > ul.nav.navbar-top-links.navbar-right > li > ul > li:nth-child(1) > a")
 
-        # Step 2: Click on Sign-in/Sign-up dropdown
-        page.click("#navbar > ul.nav.navbar-top-links.navbar-right > li > a")
+            page.wait_for_selector("#signInName", timeout=10000)
 
-        # Step 3: Click on the Sign-in link
-        page.click("#navbar > ul.nav.navbar-top-links.navbar-right > li > ul > li:nth-child(1) > a")
+            st.info("Entering credentials...")
+            page.fill("#signInName", USERNAME)
+            page.fill("#password", PASSWORD)
 
-        # Step 4: Wait for login page to load
-        page.wait_for_selector("#signInName")
+            page.click("#next")
 
-        # Step 5: Fill in email and password
-        page.fill("#signInName", "test@gmail.com")
-        page.fill("#password", "pass1243")
+            st.info("Waiting for redirect...")
+            page.wait_for_url(PORTCONNECT_URL, timeout=15000)
 
-        # Step 6: Click the Sign-in button
-        page.click("#next")
+            # Check for member-only element (adjust selector as needed)
+            if page.locator("text=Container Search").is_visible():
+                st.success("✅ Login successful and member page loaded.")
+            else:
+                st.warning("❌ Login may have failed or member page not loaded.")
 
-        # Step 7: Wait for redirect and check if member page is loaded
-        page.wait_for_url("https://www.portconnect.co.nz/#/home", timeout=10000)
+            browser.close()
 
-        # Step 8: Check for member-specific menu item (example: Dashboard)
-        if page.locator("text=Dashboard").is_visible():
-            print("✅ Login successful and member page loaded.")
-        else:
-            print("❌ Login may have failed or member page not loaded.")
+    except PlaywrightTimeoutError:
+        st.error("⏱️ Timeout occurred during login process.")
+    except Exception as e:
+        st.error(f"🚨 Unexpected error: {e}")
 
-        browser.close()
+# --- Streamlit UI ---
+st.title("PortConnect Login Automation")
 
-run()
+if install_playwright():
+    if st.button("Run Login Automation"):
+        automate_login()
