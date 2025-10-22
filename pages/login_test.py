@@ -45,8 +45,11 @@ def automate_login():
 
             st.info("Entering credentials...")
             page.fill("#signInName", USERNAME)
-            page.fill("#password", PASSWORD)
+            
+            st.write(f"📧 Email entered: {USERNAME}")
 
+            page.fill("#password", PASSWORD)
+            st.write(f"🔒 Password entered: {'*' * len(PASSWORD)}")  # Masked for security
             st.info("Submitting login form...")
             page.click("#next")
             
