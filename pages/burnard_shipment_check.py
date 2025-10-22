@@ -177,52 +177,37 @@ def normalize_container_type(container_type):
     
     return container_type
 
+
+def is_valid_container(container):
+    if not isinstance(container, str):
+        return False
+    container = container.strip()
+    if container == "" or container == ".":
+        return False
+
+    # Remove all spaces for pattern matching
+    container = re.sub(r"\s+", "", container)
+
+    patterns = [
+        r"\(40\d{2}\)",                      # (40XX)
+        r"\(20\d{2}\)",                      # (20XX)
+        r"\(40\d{4}\)",                      # (40XXXX)
+        r"^[A-Z]{4}\d{7}\(20\d{2}\)$",       # XXXXddddddd(20XX)
+        r"^[A-Z]{4}\d{7}\(40\d{2}\)$",       # XXXXddddddd(40XX)
+        r"^[A-Z]{4}\d{7}\(40\d{4}\)$",       # XXXXddddddd(40XXXX)
+    ]
+
+    return any(re.fullmatch(p, container) for p in patterns)
+
 def are_containers_equal(container_a, container_b):
-        """
-        Checks container equality:
-        1. If both have numbers, they must match, otherwise report a difference.
-        2. If one has a number and the other does not, report a difference.
-        3. If neither has a number, check if container types match.
-        """
-        
-        # NOTE: Assuming normalize_container_comparison correctly extracts number (e.g., 'ABCU1234567') and type (e.g., '20GP')
-        norm_a = normalize_container_comparison(container_a)
-        norm_b = normalize_container_comparison(container_b)
-    
-        num_a = norm_a["number"]
-        num_b = norm_b["number"]
-        type_a = norm_a["type"]
-        type_b = norm_b["type"]
-    
-        # 1. & 2. Number Presence/Value Check
-        
-        # Case A: Both have numbers. They must be IDENTICAL.
-        if num_a and num_b:
-            if num_a != num_b:
-                return False    # Numbers are different, report it!
-            return True         # Numbers are identical, considered equal
-    
-        # Case B: Only one side has a number (Missing data on the other side).
-        elif (num_a and not num_b) or (not num_a and num_b):
-            return False # Difference: One is missing the specific number.
-    
-        # 3. No numbers found on EITHER side (Both empty/type only)
-        
-        # Fallback to check if types match (e.g., '(20GP)' vs '(20GP)')
-        if type_a and type_b:
-            if type_a == type_b:
-                return True
-            # Allow original logic for near-matches (e.g., '40HC' vs '40HCR')
-            if type_a in type_b or type_b in type_a:
-                 return True
-            return False # Types are present but different
-    
-        # Final check: If both container fields were completely empty, they are considered equal.
-        if not container_a.strip() and not container_b.strip():
-            return True
-    
-        # If the logic falls through, they are different (e.g., one had a type, the other was empty)
-        return False    
+    valid_a = is_valid_container(container_a)
+    valid_b = is_valid_container(container_b)
+
+    if not valid_a and not valid_b:
+        return True
+    return container_a.strip() == container_b.strip()
+
+   
 
 # Enhanced Comparison Function with Vessel Comparison
 def compare_rows(row_a, row_b, columns_to_compare):
