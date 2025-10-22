@@ -50,9 +50,8 @@ def automate_login():
             st.info("Submitting login form...")
             page.click("#next")
             
-            page.wait_for_timeout(10000)  # Wait 10 seconds
             # Wait for redirect or page change
-            page.wait_for_timeout(5000)  # Give time for redirect
+            page.wait_for_timeout(10000)  # Give time for redirect
             # Log current URL
             current_url = page.url
             st.write("🔍 Current URL after login attempt:", current_url)
