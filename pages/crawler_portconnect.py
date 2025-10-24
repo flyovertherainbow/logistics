@@ -5,6 +5,7 @@ import subprocess
 import sys
 import io
 import time
+import re
 
 # --- Configuration ---
 PORTCONNECT_URL = "https://www.portconnect.co.nz/#/home"
@@ -79,11 +80,24 @@ def execute_login_sequence(page, USERNAME, PASSWORD, PORTCONNECT_URL, status_pla
         # Log current URL and page title for debugging
         status_placeholder.info(f"🔍 Current URL: {page.url}")
         status_placeholder.info(f"📄 Page title: {page.title()}")
-        # Handle 'Keep me signed in' prompt if present
-        if page.locator("text=Keep me signed in").is_visible():
-            status_placeholder.info("🔄 'Keep me signed in' prompt detected. Clicking 'Yes'...")
-            page.click("text=Yes")
-            page.wait_for_timeout(5000)
+        # Handle 'Stay signed in' prompt if present (Azure B2C)
+        try:
+            prompt_visible = page.locator("text=/Keep me signed in|Stay signed in/i").is_visible()
+        except Exception:
+            prompt_visible = False
+        if prompt_visible:
+            status_placeholder.info("🔄 'Stay signed in' prompt detected. Attempting to click 'Yes'...")
+            try:
+                yes_btn = page.get_by_role("button", name=re.compile("Yes", re.I))
+                yes_btn.wait_for(state="visible", timeout=8000)
+                yes_btn.click(timeout=5000)
+            except Exception:
+                try:
+                    page.locator('button:has-text("Yes")').wait_for(state="visible", timeout=8000)
+                    page.locator('button:has-text("Yes")').click(timeout=5000)
+                except Exception:
+                    status_placeholder.warning("Could not click 'Yes'. Proceeding without dismissing prompt.")
+            page.wait_for_timeout(2000)
         
         # --- 4. Post-Login Wait (Resilient Check) ---
         # Wait for the "Track and Trace" link to appear, confirming successful dashboard load.
@@ -92,7 +106,7 @@ def execute_login_sequence(page, USERNAME, PASSWORD, PORTCONNECT_URL, status_pla
         # Wait for the locator to be visible/clickable
         page.locator(TRACK_AND_TRACE_MENU_LINK_LOCATOR).wait_for(state="visible", timeout=45000) 
 
-        status_placeholder.success("Login successful! Dashboard element confirmed.")
+        status_placeholder.success("Signed in successfully!")
 
         # --- 5. Navigate to Search ---
         status_placeholder.info("4. Navigating to Track and Trace Search page...")
@@ -104,24 +118,13 @@ def execute_login_sequence(page, USERNAME, PASSWORD, PORTCONNECT_URL, status_pla
         status_placeholder.info("Clicking Search link...")
         page.wait_for_selector(TRACK_AND_TRACE_SEARCH_LINK, state="visible", timeout=10000)
 
-        TRACK_AND_TRACE_MENU_LINK_LOCATOR = 'xpath=//*[@id="pc-menu"]/li[2]/a'
-    
-        # Track and Trace Dropdown Link (Main Menu Link) - This is now the robust locator string
-        TRACK_AND_TRACE_MENU_LINK = TRACK_AND_TRACE_MENU_LINK_LOCATOR 
-    
-        # Search Link (Nested inside the Track and Trace Dropdown)
-        # This selector remains reliable as it uses the unique destination URL.
-        TRACK_AND_TRACE_SEARCH_LINK = "a[href='/#/track-trace/search']"
-
-
-
-        
-        
+        # Click the search link and wait for navigation to complete
+        with page.expect_navigation(timeout=30000):
+            page.click(TRACK_AND_TRACE_SEARCH_LINK)
         
         # Wait for the specific container input field to confirm the page has loaded
         CONTAINER_INPUT_SELECTOR = '#container-input-textarea'
         page.wait_for_selector(CONTAINER_INPUT_SELECTOR, state="visible", timeout=15000)
-
 
         status_placeholder.success("Navigation to Track & Trace Search confirmed!")
         return True
@@ -138,6 +141,7 @@ def execute_login_sequence(page, USERNAME, PASSWORD, PORTCONNECT_URL, status_pla
 
 # Placeholder for a missing function/variable, define it here for completeness
 CONTAINER_INPUT_SELECTOR = '#container-input-textarea' # Assuming a common ID for container input
+
 
 def run_crawler(container_list, status_placeholder):
     """
@@ -246,6 +250,7 @@ def run_crawler(container_list, status_placeholder):
         return pd.DataFrame(), False
 
 # --- Streamlit App UI ---
+
 
 def main():
     st.set_page_config(page_title="PortConnect Container Crawler", layout="centered")
