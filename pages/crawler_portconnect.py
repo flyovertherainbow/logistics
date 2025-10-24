@@ -103,13 +103,20 @@ def execute_login_sequence(page, USERNAME, PASSWORD, PORTCONNECT_URL, status_pla
         # 5b. Wait for the 'Search' link to appear and click it
         status_placeholder.info("Clicking Search link...")
         page.wait_for_selector(TRACK_AND_TRACE_SEARCH_LINK, state="visible", timeout=10000)
+
+        TRACK_AND_TRACE_MENU_LINK_LOCATOR = 'xpath=//*[@id="pc-menu"]/li[2]/a'
+    
+        # Track and Trace Dropdown Link (Main Menu Link) - This is now the robust locator string
+        TRACK_AND_TRACE_MENU_LINK = TRACK_AND_TRACE_MENU_LINK_LOCATOR 
+    
+        # Search Link (Nested inside the Track and Trace Dropdown)
+        # This selector remains reliable as it uses the unique destination URL.
+        TRACK_AND_TRACE_SEARCH_LINK = "a[href='/#/track-trace/search']"
+
+
+
         
-        # Click the search link, and wait for the subsequent navigation to complete
-        page.click(
-            TRACK_AND_TRACE_SEARCH_LINK, 
-            wait_until="load", 
-            timeout=30000
-        )
+        
         
         # Wait for the specific container input field to confirm the page has loaded
         CONTAINER_INPUT_SELECTOR = '#container-input-textarea'
