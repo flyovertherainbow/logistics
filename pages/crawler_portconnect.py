@@ -95,12 +95,11 @@ def execute_login_sequence(page, USERNAME, PASSWORD, PORTCONNECT_URL, status_pla
         page.wait_for_selector(TRACK_AND_TRACE_SEARCH_LINK, state="visible", timeout=10000)
         
         # Click the search link, and wait for the subsequent navigation to complete
-        page.click(
-            TRACK_AND_TRACE_SEARCH_LINK, 
-            wait_until="load", 
-            timeout=30000
-        )
+        TRACK_AND_TRACE_SEARCH_LINK = "a[href='/#/track-trace/search']"
+        page.click(TRACK_AND_TRACE_SEARCH_LINK, timeout=30000)
+        page.wait_for_load_state("load")
         
+               
         # Wait for the specific container input field to confirm the page has loaded
         CONTAINER_INPUT_SELECTOR = '#container-input-textarea'
         page.wait_for_selector(CONTAINER_INPUT_SELECTOR, state="visible", timeout=15000)
