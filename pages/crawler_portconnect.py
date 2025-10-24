@@ -8,7 +8,7 @@ import time
 
 # --- Configuration ---
 PORTCONNECT_URL = "https://www.portconnect.co.nz/#/home"
-USERNAME = "Calony.lam@gmail.com"
+USERNAME = "Calony.lam@ecly.co.nz"
 PASSWORD = "Eclyltd88$"
 CONTAINER_INPUT_SELECTOR = "#txContainerInput"
 
