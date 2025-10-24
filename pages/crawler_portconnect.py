@@ -74,6 +74,16 @@ def execute_login_sequence(page, USERNAME, PASSWORD, PORTCONNECT_URL, status_pla
         
         # Click the submit button
         page.click(SUBMIT_BUTTON_SELECTOR)
+        # Wait for possible redirect or additional prompts
+        page.wait_for_timeout(8000)
+        # Log current URL and page title for debugging
+        status_placeholder.info(f"🔍 Current URL: {page.url}")
+        status_placeholder.info(f"📄 Page title: {page.title()}")
+        # Handle 'Keep me signed in' prompt if present
+        if page.locator("text=Keep me signed in").is_visible():
+            status_placeholder.info("🔄 'Keep me signed in' prompt detected. Clicking 'Yes'...")
+            page.click("text=Yes")
+            page.wait_for_timeout(5000)
         
         # --- 4. Post-Login Wait (Resilient Check) ---
         # Wait for the "Track and Trace" link to appear, confirming successful dashboard load.
@@ -95,11 +105,12 @@ def execute_login_sequence(page, USERNAME, PASSWORD, PORTCONNECT_URL, status_pla
         page.wait_for_selector(TRACK_AND_TRACE_SEARCH_LINK, state="visible", timeout=10000)
         
         # Click the search link, and wait for the subsequent navigation to complete
-        TRACK_AND_TRACE_SEARCH_LINK = "a[href='/#/track-trace/search']"
-        page.click(TRACK_AND_TRACE_SEARCH_LINK, timeout=30000)
-        page.wait_for_load_state("load")
+        page.click(
+            TRACK_AND_TRACE_SEARCH_LINK, 
+            wait_until="load", 
+            timeout=30000
+        )
         
-               
         # Wait for the specific container input field to confirm the page has loaded
         CONTAINER_INPUT_SELECTOR = '#container-input-textarea'
         page.wait_for_selector(CONTAINER_INPUT_SELECTOR, state="visible", timeout=15000)
