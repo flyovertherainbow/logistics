@@ -374,15 +374,15 @@ def main():
     st.title("🚢 TRI-STAR SHIPMENT CHECK LIST")
     
     # File upload section
-    col1, col2 = st.columns(2)
+    #col1, col2 = st.columns(2)
     
-    with col1:
-        st.markdown("### TRI-STAR SHIPMENT REPORT")
-        file_a = st.file_uploader("Upload Excel A (Shipment Report)", type=['xlsx'], key='file_a')
+    #with col1:
+    st.markdown("### TRI-STAR SHIPMENT REPORT")
+    file_a = st.file_uploader("Upload Excel A (Shipment Report)", type=['xlsx'], key='file_a')
         
-    with col2:
-        st.markdown("### IMPORT DOC")
-        file_b = st.file_uploader("Upload Excel B (Import Doc)", type=['xlsx'], key='file_b')
+    #with col2:
+    st.markdown("### IMPORT DOC")
+    file_b = st.file_uploader("Upload Excel B (Import Doc)", type=['xlsx'], key='file_b')
         
     st.markdown("---")
     
