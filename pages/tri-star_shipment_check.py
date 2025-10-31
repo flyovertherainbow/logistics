@@ -416,8 +416,8 @@ def main():
                 st.error(f"**{len(df_diff_eta)}** POs have different ETAs.")
                 null_highlight_color = '#f0f0f0'
                 #st.dataframe(df_diff_eta.style.highlight_null(null_color='#f0f0f0'), use_container_width=True, hide_index=True)
-                styled_df = df_diff_eta.style.map_na(
-                    lambda x: f'background-color: {null_highlight_color}'
+                styled_df = df_diff_eta.style.applymap(
+                    lambda val: f'background-color: {null_highlight_color}' if pd.isna(val) else ''
                 )
             
                 st.dataframe(styled_df, use_container_width=True, hide_index=True)
