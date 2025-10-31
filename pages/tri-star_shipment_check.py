@@ -1,547 +1,490 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
+import io
 import re
-from io import BytesIO
 from datetime import datetime
-from functools import reduce
+from openpyxl import load_workbook
 
-# --- Helper Functions ---
+# --- Constants and Utility Functions ---
 
-def read_excel_sheets(uploaded_file, original_name):
+# Mapping of keywords to standard column names (Case-insensitive matching)
+COLUMN_MAP_A = {
+    'Order #': 'Order #',
+    'Supplier': 'Supplier',
+    'Arrival Vessel': 'Arrival Vessel',
+    'Arrival Voyage': 'Arrival Voyage',
+    'ETA': 'ETA',
+    'Container': 'Container'
+}
+
+COLUMN_MAP_B = {
+    'BC PO': 'BC PO', # Covers BC PO/LC
+    'Estimated Arrival': 'ETA', # Covers ETA Dates
+    'Vessel': 'Arrival Vessel', # Covers Arrival Vessel, Vessel Name
+    'Voyage': 'Arrival Voyage', # Covers Arrival Voyage, Voyage
+    'Supplier': 'Supplier',
+}
+
+# Regex for container number: 4 upper letters followed by 7 digits
+CONTAINER_NUMBER_PATTERN = re.compile(r'([A-Z]{4}\d{7})', re.IGNORECASE)
+# Regex for container type: e.g., (20GP)
+CONTAINER_TYPE_PATTERN = re.compile(r'\((20GP|20RE|40GP|40HC|40RE|40REHC)\)', re.IGNORECASE)
+
+
+@st.cache_data
+def detect_header_row(uploaded_file):
     """
-    Reads all sheets from an Excel file (or mock CSVs for Sheets) into a dictionary of DataFrames.
-    If the file is a single CSV, it returns it as a single 'Sheet 1'.
+    Finds the header row index (0-based) containing 'Order #' and 'Supplier' 
+    in the first 20 rows of the TRI-STAR report (Excel A).
+    """
+    # Read entire file without a header first
+    df_raw = pd.read_excel(uploaded_file, header=None, engine='openpyxl')
+    
+    keywords = ["Order #", "Supplier"]
+    
+    # Check up to the first 20 rows
+    for i in range(min(20, len(df_raw))):
+        # Convert row to string, check for keywords
+        # Use str.lower() for case-insensitive matching
+        row_str = ' '.join(df_raw.iloc[i].astype(str).str.lower().fillna(''))
+        if all(keyword.lower() in row_str for keyword in keywords):
+            return i
+            
+    return 0 # Fallback to first row
+
+
+def get_latest_sheet_name(uploaded_file):
+    """
+    Selects the sheet in IMPORT DOC (Excel B) with the most recent date (MM.YYYY) 
+    or the last sheet as a fallback.
     """
     try:
-        # Check if the uploaded object is a list of "Sheet" CSVs (common in this environment)
-        # We look for files where the original Excel name is a prefix of the uploaded filename.
-        if isinstance(uploaded_file, list):
-             # Filter based on original name to avoid mixing files
-             # Note: In a true Streamlit deployment, st.file_uploader returns a single object.
-             # This setup handles the environment's specific way of mock-splitting Excel files.
-            
-            sheet_dfs = {}
-            for f in uploaded_file:
-                # Extract sheet name from filename format: "OriginalName.xlsx - Sheet Name.csv"
-                try:
-                    sheet_name_match = re.search(r' - (.*)\.csv$', f.name)
-                    sheet_name = sheet_name_match.group(1) if sheet_name_match else f.name
-                    f.seek(0)
-                    df = pd.read_csv(f)
-                    sheet_dfs[sheet_name] = df
-                except Exception as e:
-                    st.warning(f"Could not process sheet {f.name}: {e}")
-            return sheet_dfs
-        
-        # If it's a single file object, treat it as a single sheet or an actual Excel file
-        uploaded_file.seek(0)
-        return {"Sheet 1": pd.read_excel(uploaded_file, sheet_name=None)}
-        
-    except Exception as e:
-        st.error(f"Error reading file: {e}")
+        # Load workbook to get sheet names
+        wb = load_workbook(uploaded_file)
+        sheet_names = wb.sheetnames
+    except Exception:
         return None
 
-def detect_header_row(df, keywords_a):
-    """Detects the header row index by searching for keywords in the first 20 rows."""
-    max_rows = min(len(df), 20)
-    for i in range(max_rows):
-        row = df.iloc[i].astype(str).str.lower().str.strip()
-        if all(any(key.lower() in col for col in row.values) for key in keywords_a):
-            return i
-    return 0 # Fallback to 0 if not found
-
-def get_latest_import_sheet(sheet_dfs):
-    """Selects the sheet with the latest MM.YYYY date, or the last sheet as fallback."""
-    date_sheets = {}
-    for name, df in sheet_dfs.items():
-        # Regex for MM.YYYY date format
+    dated_sheets = {}
+    for name in sheet_names:
+        # Regex to find MM.YYYY format
         match = re.search(r'(\d{1,2}\.\d{4})', name)
         if match:
             try:
-                # Parse as month and year
+                # Try to parse as date (01 for day)
                 date_obj = datetime.strptime(match.group(1), '%m.%Y')
-                date_sheets[name] = date_obj
+                dated_sheets[name] = date_obj
             except ValueError:
-                continue
+                continue # Skip invalid dates
 
-    if date_sheets:
-        latest_sheet_name = max(date_sheets, key=date_sheets.get)
-        return sheet_dfs[latest_sheet_name], latest_sheet_name
+    if dated_sheets:
+        # Return the sheet name corresponding to the latest date
+        return max(dated_sheets, key=dated_sheets.get)
     
-    # Fallback: get the last sheet if no date is found
-    if sheet_dfs:
-        last_sheet_name = list(sheet_dfs.keys())[-1]
-        return sheet_dfs[last_sheet_name], last_sheet_name
+    # Fallback to the last sheet
+    return sheet_names[-1] if sheet_names else None
+
+
+def extract_pos(po_series: pd.Series) -> pd.Series:
+    """
+    Cleans and extracts 6-digit POs from a Series, handling combined and prefixed formats.
+    Returns a Series where each element is a list of clean 6-digit PO strings.
+    """
+    def clean_po(po_str):
+        if pd.isna(po_str) or po_str is None:
+            return []
         
-    return None, None
+        po_str = str(po_str).upper().strip()
+        
+        # 1. Remove common prefixes like PO., PO#, PO
+        po_str = re.sub(r'^(PO[#.]?)', '', po_str)
+        
+        # 2. Extract all 6-digit numbers. This handles:
+        # - 107166
+        # - 106815.A, 106815-1 (the non-digit part is ignored)
+        # - 107070/107432 (both 6-digit numbers are captured)
+        matches = re.findall(r'(\d{6})', po_str)
+        
+        clean_pos = set()
+        for po in matches:
+            if len(po) == 6:
+                clean_pos.add(po)
+                
+        return sorted(list(clean_pos))
 
-def normalize_po(po_str):
-    """Extracts all contiguous 6-digit numbers, handling separators like '/' and prefixes."""
-    if pd.isna(po_str) or po_str == '':
-        return []
-    
-    po_str = str(po_str).upper()
-    
-    # Remove PO/PO./PO# prefixes
-    po_str = re.sub(r'P\.?O\#?', '', po_str)
-    
-    # Replace non-digit/non-separator characters with space, keep '/'
-    po_str = re.sub(r'[^\d\/\.\-\s]', ' ', po_str)
-    
-    # Split by common separators (/, ., -) and whitespace
-    parts = re.split(r'[\/\.\-\s]+', po_str)
-    
-    extracted_pos = []
-    for part in parts:
-        # Find 6-digit numbers in each part
-        matches = re.findall(r'\b(\d{6})\b', part)
-        extracted_pos.extend(matches)
-            
-    # Remove duplicates and return
-    return sorted(list(set(extracted_pos)))
+    # Apply the cleaning function and return as a Series
+    return po_series.apply(clean_po)
 
-def extract_container_info(container_str):
-    """
-    Extracts the container number (4 letters + 7 digits) and type (e.g., (20GP)).
-    Returns (number, type).
-    """
-    if pd.isna(container_str) or container_str == '':
+
+def parse_container_string(container_str: str) -> tuple[str, str]:
+    """Extracts the 4-letter + 7-digit container number and the container type."""
+    if pd.isna(container_str) or not container_str:
         return None, None
-    
-    container_str = str(container_str).upper().strip()
-    
-    # Regex for container number (4 letters + 7 digits)
-    num_match = re.search(r'([A-Z]{4}\d{7})', container_str)
-    number = num_match.group(1) if num_match else None
-    
-    # Regex for container type (e.g., (20GP))
-    type_match = re.search(r'(\([A-Z0-9]+\))', container_str)
-    type_str = type_match.group(1) if type_match else None
-    
-    return number, type_str
-
-def get_col_name(df, keywords):
-    """Finds the first column name that contains any of the keywords."""
-    for col in df.columns:
-        if any(key.lower() in str(col).lower() for key in keywords):
-            return col
-    return None
-
-def normalize_vessel(vessel_str):
-    """Strips spaces and converts to uppercase for comparison."""
-    if pd.isna(vessel_str):
-        return None
-    return str(vessel_str).replace(' ', '').upper().strip()
-
-
-# --- Processing Logic ---
-
-def process_import_doc(sheet_dfs):
-    """Processes Excel B (Import Doc) to select the latest sheet and standardize columns."""
-    
-    df_b, sheet_name = get_latest_import_sheet(sheet_dfs)
-    if df_b is None:
-        st.error("No valid sheets found in Import Doc file.")
-        return None
-
-    st.info(f"Using sheet: **{sheet_name}** from Import Doc.")
-
-    # 1. Column Mapping (Keywords for Flexible Column Names)
-    col_map = {
-        'po_col': get_col_name(df_b, ['po', 'bc po', 'lc']),
-        'eta_col': get_col_name(df_b, ['eta dates', 'estimated arrival', 'eta']),
-        'vessel_col': get_col_name(df_b, ['arrival vessel', 'vessel name', 'vessel']),
-        'voyage_col': get_col_name(df_b, ['arrival voyage', 'voyage']),
-    }
-    
-    # Filter out missing columns
-    df_b_proc = pd.DataFrame()
-    for new_name, old_col in [('BC PO', col_map['po_col']), 
-                              ('ETA', col_map['eta_col']), 
-                              ('Arrival Vessel', col_map['vessel_col']),
-                              ('Arrival Voyage', col_map['voyage_col'])]:
-        if old_col:
-            df_b_proc[new_name] = df_b[old_col]
-        else:
-            df_b_proc[new_name] = pd.NA
-            st.warning(f"Could not find a column for **{new_name}** in Import Doc. (Keywords: {new_name.lower().split()})")
-
-
-    # 2. Container Consolidation
-    container_cols = [col for col in df_b.columns if 'container' in str(col).lower()]
-    
-    # Take up to the first 6 container columns
-    container_cols = container_cols[:6]
-
-    if container_cols:
-        # Function to combine container values, ignoring NaNs
-        def combine_containers(row):
-            return ', '.join(str(val) for val in row if pd.notna(val) and str(val).strip() != '')
-
-        df_b_proc['Container'] = df_b[container_cols].apply(combine_containers, axis=1)
-    else:
-        df_b_proc['Container'] = pd.NA
-        st.warning("Could not find any 'container' columns for consolidation in Import Doc.")
         
-    # 3. PO Extraction and Explosion (One row per PO)
-    exploded_list = []
-    for index, row in df_b_proc.iterrows():
-        po_numbers = normalize_po(row['BC PO'])
-        if not po_numbers:
-            # Keep original row for unmatched tracking, but set PO to NaN
-            new_row = row.copy()
-            new_row['PO_Clean'] = pd.NA
-            exploded_list.append(new_row.to_dict())
-            continue
+    container_str = str(container_str).strip().upper()
+    
+    # Extract container number (4 letters + 7 digits)
+    num_match = CONTAINER_NUMBER_PATTERN.search(container_str)
+    container_number = num_match.group(1) if num_match else None
+    
+    # Extract container type (e.g., 20GP)
+    type_match = CONTAINER_TYPE_PATTERN.search(container_str)
+    container_type = type_match.group(1) if type_match else None
+    
+    return container_number, container_type
+
+# --- Core Data Processing Functions ---
+
+@st.cache_data
+def process_excel_b(uploaded_file):
+    """Processes IMPORT DOC (Excel B)"""
+    with st.spinner("Processing IMPORT DOC..."):
+        
+        # 1. Sheet Selection
+        sheet_name = get_latest_sheet_name(uploaded_file)
+        if not sheet_name:
+            st.error("No usable sheets found in IMPORT DOC.")
+            return None
+
+        st.info(f"Using latest sheet: **{sheet_name}**")
+        
+        df_b = pd.read_excel(uploaded_file, sheet_name=sheet_name, header=0, engine='openpyxl')
+        
+        # Clean column names
+        df_b.columns = [str(col).strip().replace('\n', ' ') for col in df_b.columns]
+        b_cols_lower = {col.lower(): col for col in df_b.columns}
+        
+        # 2. Column Mapping and Standardization
+        standard_cols = {}
+        for keyword, std_name in COLUMN_MAP_B.items():
+            found_col = next((b_col_name for lower_col, b_col_name in b_cols_lower.items() 
+                              if keyword.lower() in lower_col), None)
             
-        for po in po_numbers:
-            new_row = row.copy()
-            new_row['PO_Clean'] = po
-            exploded_list.append(new_row.to_dict())
-
-    df_b_final = pd.DataFrame(exploded_list).dropna(subset=['PO_Clean']).drop_duplicates(subset=['PO_Clean'])
-    df_b_final['Source'] = 'Import_Doc_B'
-    return df_b_final[['PO_Clean', 'ETA', 'Arrival Vessel', 'Arrival Voyage', 'Container', 'Source']]
-
-
-def process_tri_star_report(df_a):
-    """Processes Excel A (TRI-STAR) to detect header, clean ETA, and standardize columns."""
-    
-    # 1. Header Detection
-    keywords_a = ["Order #", "Supplier"]
-    header_row_index = detect_header_row(df_a, keywords_a)
-    
-    # Re-read DataFrame with correct header
-    df_a.columns = df_a.iloc[header_row_index]
-    df_a = df_a[header_row_index+1:].reset_index(drop=True)
-    df_a.columns = [str(col).strip() if col is not None else f'Unnamed_{i}' for i, col in enumerate(df_a.columns)]
-    
-    st.info(f"Header row detected at index **{header_row_index + 1}** in TRI-STAR REPORT.")
-
-    # 2. Column Standardization
-    col_map = {
-        'Order #': 'PO',
-        'ETA': 'ETA',
-        'Arrival Vessel': 'Arrival Vessel',
-        'Arrival Voyage': 'Arrival Voyage',
-        'Container': 'Container'
-    }
-    
-    # Find the actual column names in df_a
-    standardized_df = pd.DataFrame()
-    for old_col, new_col in col_map.items():
-        if old_col in df_a.columns:
-            standardized_df[new_col] = df_a[old_col]
-        else:
-            # Handle slight variations for Order #
-            actual_col = get_col_name(df_a, ['order', 'order #', 'order number']) if old_col == 'Order #' else None
-            if actual_col:
-                standardized_df[new_col] = df_a[actual_col]
-            else:
-                standardized_df[new_col] = pd.NA
-                st.warning(f"Could not find column **{old_col}** in TRI-STAR REPORT.")
-    
-    # 3. Cleaning: Drop rows where ETA is invalid
-    original_count = len(standardized_df)
-    
-    def safe_to_datetime(date_series):
-        # Attempt to convert to datetime, coercing errors to NaT
-        return pd.to_datetime(date_series, errors='coerce')
-
-    standardized_df['ETA_Clean'] = safe_to_datetime(standardized_df['ETA'])
-    standardized_df = standardized_df.dropna(subset=['ETA_Clean'])
-    
-    rows_dropped = original_count - len(standardized_df)
-    if rows_dropped > 0:
-        st.info(f"Dropped **{rows_dropped}** rows from TRI-STAR REPORT due to invalid ETA values.")
+            # Check for generic column names to prevent mapping errors on common words
+            if found_col and std_name not in standard_cols.values():
+                standard_cols[found_col] = std_name
+                
+        # Rename columns
+        df_b = df_b.rename(columns=standard_cols)
         
-    # 4. PO Extraction and Explosion
-    exploded_list = []
-    for index, row in standardized_df.iterrows():
-        po_numbers = normalize_po(row['PO'])
+        required_cols_b = ['BC PO', 'ETA']
+        if not all(col in df_b.columns for col in required_cols_b):
+            st.error(f"Missing essential columns in IMPORT DOC. Required: {required_cols_b}. Found: {df_b.columns.tolist()}")
+            return None
+
+        # 3. Container Consolidation
+        # Find the first column containing 'container'
+        container_start_col_name = next((col for col in df_b.columns if 'container' in col.lower()), None)
+        cols_to_concat = []
         
-        if not po_numbers:
-            # Keep original row for unmatched tracking, but set PO to NaN
-            new_row = row.copy()
-            new_row['PO_Clean'] = pd.NA
-            exploded_list.append(new_row.to_dict())
-            continue
+        if container_start_col_name:
+            col_index = df_b.columns.get_loc(container_start_col_name)
             
-        for po in po_numbers:
-            new_row = row.copy()
-            new_row['PO_Clean'] = po
-            exploded_list.append(new_row.to_dict())
+            # Start with the found container column
+            cols_to_concat.append(container_start_col_name)
+            
+            # Check up to 5 subsequent columns
+            for i in range(1, 6):
+                if col_index + i < len(df_b.columns):
+                    col_name = df_b.columns[col_index + i]
+                    # Include if the name is an empty string or starts with 'Unnamed'
+                    if not col_name or col_name.startswith('Unnamed'):
+                        cols_to_concat.append(col_name)
 
-    df_a_final = pd.DataFrame(exploded_list).dropna(subset=['PO_Clean']).drop_duplicates(subset=['PO_Clean'])
-    df_a_final['Source'] = 'Tri_Star_A'
+        if cols_to_concat:
+            # Fill NaN with empty string for concatenation, then join non-empty, stripped values with comma
+            df_b['Container'] = df_b[cols_to_concat].astype(str).fillna('').agg(
+                lambda x: ', '.join(filter(None, [v.strip() for v in x.tolist()])), axis=1
+            )
+        else:
+            df_b['Container'] = '' # Create empty column if no container columns were found
 
-    return df_a_final[['PO_Clean', 'ETA', 'Arrival Vessel', 'Arrival Voyage', 'Container', 'Source', 'ETA_Clean']]
+        # PO extraction
+        df_b['Clean_POs'] = extract_pos(df_b['BC PO'])
+        df_b = df_b.explode('Clean_POs').rename(columns={'Clean_POs': 'PO'})
+        df_b = df_b[df_b['PO'].notna() & (df_b['PO'].str.len() == 6)].copy()
+        
+        # Drop duplicates POs (keep the first entry for simplicity in mapping B data)
+        df_b = df_b.drop_duplicates(subset=['PO'], keep='first')
+        
+        st.success(f"IMPORT DOC processed. Found **{len(df_b)}** unique POs.")
+        return df_b.set_index('PO')
 
-# --- Comparison Logic ---
 
-def compare_dataframes(df_a, df_b):
-    """Compares the two processed dataframes based on PO_Clean."""
+@st.cache_data
+def process_excel_a(uploaded_file):
+    """Processes TRI-STAR SHIPMENT REPORT (Excel A)"""
+    with st.spinner("Processing TRI-STAR SHIPMENT REPORT..."):
+        
+        # 1. Header Detection
+        header_row_index = detect_header_row(uploaded_file)
+        
+        # Read again with detected header row
+        df_a = pd.read_excel(uploaded_file, header=header_row_index, engine='openpyxl')
+        
+        # Clean column names (strip leading/trailing space)
+        df_a.columns = [str(col).strip() for col in df_a.columns]
+        
+        # Map to standard names
+        a_cols_lower = {col.lower(): col for col in df_a.columns}
+        standard_cols = {}
+        
+        for keyword, std_name in COLUMN_MAP_A.items():
+            found_col = next((a_col_name for lower_col, a_col_name in a_cols_lower.items() 
+                              if keyword.lower() in lower_col), None)
+            if found_col:
+                standard_cols[found_col] = std_name
+                
+        df_a = df_a.rename(columns=standard_cols)
+        
+        required_cols_a = list(COLUMN_MAP_A.values())
+        if not all(col in df_a.columns for col in required_cols_a):
+            st.error(f"Missing essential columns in TRI-STAR SHIPMENT REPORT. Required: {required_cols_a}. Found: {df_a.columns.tolist()}")
+            return None
+
+        # 2. Cleaning (Drop rows with invalid ETA)
+        initial_rows = len(df_a)
+        # Attempt to convert ETA to datetime, coercing errors to NaT
+        df_a['ETA'] = pd.to_datetime(df_a['ETA'], errors='coerce')
+        df_a = df_a.dropna(subset=['ETA']).copy()
+        
+        if len(df_a) < initial_rows:
+            st.warning(f"Dropped {initial_rows - len(df_a)} rows with invalid 'ETA' in TRI-STAR SHIPMENT REPORT.")
+
+        # PO extraction
+        df_a['Clean_POs'] = extract_pos(df_a['Order #'])
+        df_a = df_a.explode('Clean_POs').rename(columns={'Clean_POs': 'PO'})
+        df_a = df_a[df_a['PO'].notna() & (df_a['PO'].str.len() == 6)].copy()
+
+        # Drop duplicates POs (keep the first entry for simplicity in mapping A data)
+        df_a = df_a.drop_duplicates(subset=['PO'], keep='first')
+        
+        st.success(f"TRI-STAR SHIPMENT REPORT processed. Found **{len(df_a)}** unique POs.")
+        return df_a.set_index('PO')
+
+
+@st.cache_data
+def compare_dataframes(df_a: pd.DataFrame, df_b: pd.DataFrame):
+    """Performs the core comparison logic."""
     
-    # POs in A and B
-    matched_pos = list(set(df_a['PO_Clean']).intersection(set(df_b['PO_Clean'])))
+    # Discrepancy lists
+    diff_eta = []
+    diff_container = []
     
-    # POs in A but not in B
-    unmatched_a_pos = list(set(df_a['PO_Clean']) - set(df_b['PO_Clean']))
-    
-    # Prepare DataFrames for comparison
-    df_a_comp = df_a[df_a['PO_Clean'].isin(matched_pos)].set_index('PO_Clean')
-    df_b_comp = df_b[df_b['PO_Clean'].isin(matched_pos)].set_index('PO_Clean')
-    
-    # Initialize results
-    eta_diffs = []
-    container_diffs = []
-    vessel_diffs = []
+    # Identify matched POs
+    matched_pos = sorted(list(set(df_a.index) & set(df_b.index)))
     
     for po in matched_pos:
-        row_a = df_a_comp.loc[po]
-        row_b = df_b_comp.loc[po]
+        row_a = df_a.loc[po]
+        row_b = df_b.loc[po]
+
+        # --- ETA Comparison (Rule 3) ---
+        eta_a = row_a['ETA'].normalize().date() if pd.notna(row_a['ETA']) else None
         
-        # 1. ETA Comparison
-        eta_a_str = row_a['ETA_Clean'].strftime('%Y-%m-%d') if pd.notna(row_a['ETA_Clean']) else 'N/A'
-        # Try to parse ETA in B for clean comparison. If it fails, rely on the original string
+        # Convert Excel B's ETA to date, handling various inputs
+        eta_b_raw = row_b.get('ETA')
+        eta_b = None
         try:
-            eta_b_clean = pd.to_datetime(row_b['ETA'], errors='coerce')
-            eta_b_str = eta_b_clean.strftime('%Y-%m-%d') if pd.notna(eta_b_clean) else str(row_b['ETA'])
+            eta_b_dt = pd.to_datetime(eta_b_raw, errors='coerce')
+            eta_b = eta_b_dt.normalize().date() if pd.notna(eta_b_dt) else None
         except:
-            eta_b_str = str(row_b['ETA'])
-        
-        # Compare cleaned dates (or date strings if cleaning failed)
-        if eta_a_str != eta_b_str:
-            eta_diffs.append({
+            eta_b = None
+
+        if eta_a != eta_b:
+            diff_eta.append({
                 'PO': po,
-                'A_ETA': row_a['ETA'],
-                'B_ETA': row_b['ETA'],
-                'A_Source_Value': eta_a_str,
-                'B_Source_Value': eta_b_str
+                'Vessel A (TRI-STAR)': str(row_a['Arrival Vessel']).strip(),
+                'ETA A (TRI-STAR)': eta_a,
+                'Vessel B (IMPORT DOC)': str(row_b.get('Arrival Vessel', '')).strip(),
+                'ETA B (IMPORT DOC)': eta_b,
             })
 
-        # 2. Vessel/Voyage Comparison
-        vessel_a = normalize_vessel(row_a['Arrival Vessel'])
-        voyage_a = normalize_vessel(row_a['Arrival Voyage'])
-        vessel_b = normalize_vessel(row_b['Arrival Vessel'])
-        voyage_b = normalize_vessel(row_b['Arrival Voyage'])
+        # --- Container Comparison (Rule 2) ---
+        container_a_raw = row_a.get('Container')
+        container_b_raw = row_b.get('Container')
         
-        if (vessel_a and vessel_b and vessel_a != vessel_b) or \
-           (voyage_a and voyage_b and voyage_a != voyage_b):
-            vessel_diffs.append({
-                'PO': po,
-                'A_Vessel': row_a['Arrival Vessel'],
-                'A_Voyage': row_a['Arrival Voyage'],
-                'B_Vessel': row_b['Arrival Vessel'],
-                'B_Voyage': row_b['Arrival Voyage']
-            })
-            
-        # 3. Container Comparison (New Container Number logic)
-        num_a, type_a = extract_container_info(row_a['Container'])
-        num_b, type_b = extract_container_info(row_b['Container']) # B might have multiple consolidated containers
+        num_a, type_a = parse_container_string(container_a_raw)
+        num_b, type_b = parse_container_string(container_b_raw)
+
+        has_container_num_a = bool(num_a)
+        has_container_num_b = bool(num_b)
         
-        # Rule 2.3: If A has only type, do nothing
-        if num_a is None and type_a is not None:
+        # Rule 2.3: If A has only container type, do nothing (num_a is None, but raw string contains type)
+        if not has_container_num_a and type_a:
             continue
             
-        # Rule 2.1 & 2.2: A has a container number
-        if num_a is not None:
-            
-            # Check if B's container number is different or missing
-            if num_b is None:
-                # A has number, B doesn't -> Difference
-                container_diffs.append({
+        # Rule 2.1: if A has container number, but B does not (B is empty/no number)
+        if has_container_num_a and not has_container_num_b:
+            diff_container.append({
+                'PO': po,
+                'Container (TRI-STAR)': f"{num_a} ({type_a})" if type_a else num_a,
+                'Container (IMPORT DOC)': 'MISSING (No 4L7D number found)',
+                'Reason': 'New Container Number (In TRI-STAR but missing in IMPORT DOC)'
+            })
+            continue
+
+        # Rule 2.2: A and B have container numbers, but type is different
+        if has_container_num_a and has_container_num_b:
+            # Compare the extracted container numbers and types
+            if num_a != num_b or type_a != type_b:
+                 # Check if the discrepancy is only the container type
+                reason = 'Different Container Details (Number or Type Mismatch)'
+                if num_a == num_b and type_a != type_b:
+                    reason = f'Container Type Mismatch: TRI-STAR has {type_a}, IMPORT DOC has {type_b}'
+                    
+                diff_container.append({
                     'PO': po,
-                    'A_Container': row_a['Container'],
-                    'B_Container': row_b['Container'],
-                    'Reason': 'A has container number, B does not.'
+                    'Container (TRI-STAR)': f"{num_a} ({type_a})" if type_a else num_a,
+                    'Container (IMPORT DOC)': f"{num_b} ({type_b})" if type_b else num_b,
+                    'Reason': reason
                 })
-            elif num_a != num_b:
-                # A and B have different container numbers -> Difference
-                 container_diffs.append({
-                    'PO': po,
-                    'A_Container': row_a['Container'],
-                    'B_Container': row_b['Container'],
-                    'Reason': 'Different container numbers found.'
-                })
-            elif type_a is not None and type_b is not None and type_a != type_b:
-                # A and B have the same number but different types -> Difference
-                container_diffs.append({
-                    'PO': po,
-                    'A_Container': row_a['Container'],
-                    'B_Container': row_b['Container'],
-                    'Reason': 'Same container number, different type.'
-                })
+
+
+    # 2. Unmatched POs (POs in A but not in B)
+    po_a_only = sorted(list(set(df_a.index) - set(df_b.index)))
+    unmatched_pos = []
+    for po in po_a_only:
+        row_a = df_a.loc[po]
+        unmatched_pos.append({
+            'PO': po,
+            'Supplier': row_a['Supplier'],
+            'ETA': row_a['ETA'].normalize().date() if pd.notna(row_a['ETA']) else None,
+            'Arrival Vessel': row_a['Arrival Vessel'],
+            'Container (TRI-STAR)': row_a['Container']
+        })
+    
+    # Convert lists to DataFrames
+    df_diff_eta = pd.DataFrame(diff_eta)
+    df_diff_container = pd.DataFrame(diff_container)
+    df_unmatched_pos = pd.DataFrame(unmatched_pos)
+
+    return df_diff_eta, df_diff_container, df_unmatched_pos, len(matched_pos)
+
+
+def convert_df_to_csv(df):
+    """Converts DataFrame to a CSV string for download."""
+    # Use io.StringIO to create an in-memory CSV buffer
+    return df.to_csv(index=False).encode('utf-8')
+
+
+def main():
+    """Main Streamlit application function."""
+    st.set_page_config(layout="wide")
+    st.title("🚢 TRI-STAR SHIPMENT CHECK LIST")
+    
+    # File upload section
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### TRI-STAR SHIPMENT REPORT")
+        file_a = st.file_uploader("Upload Excel A (Shipment Report)", type=['xlsx'], key='file_a')
         
-    return {
-        'eta_diffs': pd.DataFrame(eta_diffs) if eta_diffs else pd.DataFrame(),
-        'unmatched_a': df_a[df_a['PO_Clean'].isin(unmatched_a_pos)][['PO_Clean', 'ETA', 'Container']].rename(columns={'PO_Clean': 'Unmatched PO (TRI-STAR)'}),
-        'container_diffs': pd.DataFrame(container_diffs) if container_diffs else pd.DataFrame(),
-    }
-
-# --- Streamlit UI and Execution ---
-
-def to_csv_download(df):
-    """Converts DataFrame to CSV and returns a download button."""
-    csv = df.to_csv(index=False).encode('utf-8')
-    return csv
-
-st.set_page_config(layout="wide")
-
-st.title("🚢 TRI-STAR SHIPMENT CHECK LIST")
-
-# File Upload Section
-col1, col2 = st.columns(2)
-
-with col1:
-    tri_star_file = st.file_uploader(
-        "**TRI-STAR SHIPMENT REPORT (Excel A)**", 
-        type=['xlsx', 'csv'], 
-        accept_multiple_files=True,
-        help="Upload the 'AKL Client Order Followup Status...' report."
-    )
-    
-with col2:
-    import_doc_files = st.file_uploader(
-        "**IMPORT DOC (Excel B)**", 
-        type=['xlsx', 'csv'], 
-        accept_multiple_files=True,
-        help="Upload the 'import_doc_james...' files/sheets."
-    )
-
-if tri_star_file and import_doc_files:
-    
+    with col2:
+        st.markdown("### IMPORT DOC")
+        file_b = st.file_uploader("Upload Excel B (Import Doc)", type=['xlsx'], key='file_b')
+        
     st.markdown("---")
-    st.subheader("⚙️ Processing Files...")
     
-    try:
-        # --- 1. Process TRI-STAR REPORT (A) ---
-        # Assuming the user uploads only one primary A file, use the first one provided
-        # We need the original file name to find the correct sheets in the environment's file list
-        tri_star_df_raw = None
-        if tri_star_file and tri_star_file[0].name.endswith('.csv'):
-             # If it's a single CSV, load it
-            tri_star_file[0].seek(0)
-            tri_star_df_raw = pd.read_csv(tri_star_file[0])
-            original_name_a = tri_star_file[0].name.split(' - ')[0]
-        elif tri_star_file:
-             # Handle actual excel file object if environment supports it
-             st.error("Please upload the file as a CSV/sheet for processing.")
-             st.stop()
+    # Data Processing and Comparison
+    if file_a and file_b:
         
-        # Try to find the correct A file in the list if multiple were uploaded (due to environment mock)
-        if tri_star_df_raw is None:
-             # Find the most likely 'A' file based on keywords, defaulting to the first CSV in the list
-             target_a_file = next((f for f in tri_star_file if 'Client - Order Status Summary R.csv' in f.name), None)
-             if target_a_file:
-                 target_a_file.seek(0)
-                 tri_star_df_raw = pd.read_csv(target_a_file)
-                 original_name_a = target_a_file.name.split(' - ')[0]
-             else:
-                 tri_star_file[0].seek(0)
-                 tri_star_df_raw = pd.read_csv(tri_star_file[0])
-                 original_name_a = tri_star_file[0].name.split(' - ')[0]
-
-        df_a_proc = process_tri_star_report(tri_star_df_raw.copy())
-        
-        if df_a_proc is None:
-            st.error("Failed to process TRI-STAR REPORT (A). Please check the file format.")
-            st.stop()
-
-        # --- 2. Process IMPORT DOC (B) ---
-        import_doc_dfs = {}
-        for f in import_doc_files:
-            # Extract sheet name from filename format: "OriginalName.xlsx - Sheet Name.csv"
-            try:
-                sheet_name_match = re.search(r' - (.*)\.csv$', f.name)
-                sheet_name = sheet_name_match.group(1) if sheet_name_match else f.name
-                f.seek(0)
-                import_doc_dfs[sheet_name] = pd.read_csv(f)
-            except Exception as e:
-                st.warning(f"Could not read sheet {f.name} for Import Doc: {e}")
-
-        df_b_proc = process_import_doc(import_doc_dfs)
-
-        if df_b_proc is None:
-            st.error("Failed to process IMPORT DOC (B). Please check the file format.")
-            st.stop()
+        # Rerun button for cache clearing (useful during development/debugging)
+        if st.button("Rerun Comparison (Clear Cache)", key='clear_cache', help="Click to force a fresh re-read and processing of the files."):
+            st.cache_data.clear()
+            st.experimental_rerun()
+            return
             
-        # --- 3. Run Comparison ---
-        st.subheader("🔬 Running Comparison...")
-        results = compare_dataframes(df_a_proc, df_b_proc)
-        
-        eta_diffs = results['eta_diffs']
-        unmatched_a = results['unmatched_a']
-        container_diffs = results['container_diffs']
-        
-        
-        st.markdown("---")
-        st.subheader("✅ Comparison Results")
+        try:
+            # Process files
+            df_a = process_excel_a(file_a)
+            df_b = process_excel_b(file_b)
+            
+            if df_a is None or df_b is None:
+                return # Stop execution if processing failed
 
-        # 1. Different in ETA
-        st.markdown("#### 1. POs with Different ETA")
-        if not eta_diffs.empty:
-            st.dataframe(eta_diffs.rename(columns={
-                'A_ETA': 'TRI-STAR ETA (Original)',
-                'B_ETA': 'IMPORT DOC ETA (Original)',
-                'A_Source_Value': 'TRI-STAR ETA (Clean)',
-                'B_Source_Value': 'IMPORT DOC ETA (Clean)'
-            }), use_container_width=True)
-            
-            st.download_button(
-                label="Download Different ETA CSV",
-                data=to_csv_download(eta_diffs),
-                file_name="eta_discrepancies.csv",
-                mime="text/csv",
-                key='dl_eta'
-            )
-        else:
-            st.success("No differences found in ETA for matched POs.")
-            st.markdown("<hr>", unsafe_allow_html=True)
-            
-        # 2. Unmatched PO Number from TRI-STAR
-        st.markdown("#### 2. Unmatched POs from TRI-STAR REPORT (Not found in IMPORT DOC)")
-        if not unmatched_a.empty:
-            st.dataframe(unmatched_a.rename(columns={
-                'ETA': 'TRI-STAR ETA',
-                'Container': 'TRI-STAR Container'
-            }), use_container_width=True)
-            
-            st.download_button(
-                label="Download Unmatched PO CSV",
-                data=to_csv_download(unmatched_a),
-                file_name="unmatched_po_tri_star.csv",
-                mime="text/csv",
-                key='dl_unmatched'
-            )
-        else:
-            st.success("All TRI-STAR POs were matched in the IMPORT DOC.")
-            st.markdown("<hr>", unsafe_allow_html=True)
-            
-        # 3. New Container Number (Discrepancies)
-        st.markdown("#### 3. Container Discrepancies (New Container Number)")
-        if not container_diffs.empty:
-            st.dataframe(container_diffs.rename(columns={
-                'A_Container': 'TRI-STAR Container',
-                'B_Container': 'IMPORT DOC Container'
-            }), use_container_width=True)
-            
-            st.download_button(
-                label="Download Container Discrepancy CSV",
-                data=to_csv_download(container_diffs),
-                file_name="container_discrepancies.csv",
-                mime="text/csv",
-                key='dl_container'
-            )
-        else:
-            st.success("No container number discrepancies found for matched POs.")
-            st.markdown("<hr>", unsafe_allow_html=True)
+            # Compare DataFrames
+            df_diff_eta, df_diff_container, df_unmatched_pos, matched_count = compare_dataframes(df_a, df_b)
 
-        st.info("Comparison complete.")
+            # --- Results Display and Download ---
+            st.header("Comparison Discrepancies")
+            st.markdown("---")
+
+            # 1. Different in ETA
+            st.subheader("1. 🗓️ Different in ETA")
+            if not df_diff_eta.empty:
+                st.error(f"**{len(df_diff_eta)}** POs have different ETAs.")
+                st.dataframe(df_diff_eta.style.highlight_null(null_color='#f0f0f0'), use_container_width=True, hide_index=True)
+                
+                # Downloadable CSV (Item 4)
+                csv_eta = convert_df_to_csv(df_diff_eta)
+                st.download_button(
+                    label="Download Differences in ETA as CSV",
+                    data=csv_eta,
+                    file_name='eta_discrepancies.csv',
+                    mime='text/csv',
+                    key='download_eta'
+                )
+            else:
+                st.success("✅ No ETA discrepancies found.")
+
+            st.markdown("---")
+
+            # 3. New Container Number (Container Discrepancy)
+            st.subheader("2. 📦 Container Discrepancies")
+            if not df_diff_container.empty:
+                st.warning(f"**{len(df_diff_container)}** POs have container discrepancies (New Container or Type Mismatch).")
+                st.dataframe(df_diff_container, use_container_width=True, hide_index=True)
+                
+                # Downloadable CSV (Item 6)
+                csv_container = convert_df_to_csv(df_diff_container)
+                st.download_button(
+                    label="Download Container Discrepancies as CSV",
+                    data=csv_container,
+                    file_name='container_discrepancies.csv',
+                    mime='text/csv',
+                    key='download_container'
+                )
+            else:
+                st.success("✅ No container discrepancies found.")
+
+            st.markdown("---")
+
+            # 2. Unmatched PO Number from TRI-STAR
+            st.subheader("3. 📝 Unmatched PO Number (In TRI-STAR but not in IMPORT DOC)")
+            if not df_unmatched_pos.empty:
+                st.error(f"**{len(df_unmatched_pos)}** POs are in TRI-STAR but missing from IMPORT DOC.")
+                st.dataframe(df_unmatched_pos.style.highlight_null(null_color='#f0f0f0'), use_container_width=True, hide_index=True)
+                
+                # Downloadable CSV (Item 5)
+                csv_po = convert_df_to_csv(df_unmatched_pos)
+                st.download_button(
+                    label="Download Unmatched POs as CSV",
+                    data=csv_po,
+                    file_name='unmatched_pos.csv',
+                    mime='text/csv',
+                    key='download_po'
+                )
+            else:
+                st.success("✅ All TRI-STAR POs were found in IMPORT DOC.")
+
+            # Display match summary
+            st.markdown("---")
+            total_a = len(df_a)
+            total_b = len(df_b)
+            st.info(f"**Summary:** **{matched_count}** POs matched successfully out of {total_a} unique POs from TRI-STAR and {total_b} unique POs from IMPORT DOC.")
+
+        except Exception as e:
+            st.error("An unexpected error occurred during processing.")
+            st.exception(e)
             
-    except Exception as e:
-        st.error(f"An unexpected error occurred during processing or comparison: {e}")
+    elif file_a or file_b:
+        st.warning("Please upload both Excel files to start the comparison.")
+    else:
+        st.info("Upload your TRI-STAR Shipment Report and Import Document files above to begin.")
 
-else:
-    st.info("Please upload both the TRI-STAR SHIPMENT REPORT and IMPORT DOC files to start the comparison.")
 
+if __name__ == '__main__':
+    # Initialize main app function if this script is executed
+    # Note: Streamlit environment will handle the execution of the main function
+    main()
