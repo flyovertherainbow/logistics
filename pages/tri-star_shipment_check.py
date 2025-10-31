@@ -414,8 +414,14 @@ def main():
             st.subheader("1. 🗓️ Different in ETA")
             if not df_diff_eta.empty:
                 st.error(f"**{len(df_diff_eta)}** POs have different ETAs.")
-                st.dataframe(df_diff_eta.style.highlight_null(null_color='#f0f0f0'), use_container_width=True, hide_index=True)
-                
+                null_highlight_color = '#f0f0f0'
+                #st.dataframe(df_diff_eta.style.highlight_null(null_color='#f0f0f0'), use_container_width=True, hide_index=True)
+                styled_df = df_diff_eta.style.map_na(
+                    lambda x: f'background-color: {null_highlight_color}'
+                )
+            
+                st.dataframe(styled_df, use_container_width=True, hide_index=True)
+
                 # Downloadable CSV (Item 4)
                 csv_eta = convert_df_to_csv(df_diff_eta)
                 st.download_button(
