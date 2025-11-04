@@ -460,7 +460,7 @@ def main():
             st.subheader("3. 📝 Unmatched PO Number (In TRI-STAR but not in IMPORT DOC)")
             if not df_unmatched_pos.empty:
                 st.error(f"**{len(df_unmatched_pos)}** POs are in TRI-STAR but missing from IMPORT DOC.")
-                st.dataframe(df_unmatched_pos.style.highlight_null(null_color='#f0f0f0'), use_container_width=True, hide_index=True)
+                st.dataframe(df_unmatched_pos.style.highlight_null(color='#f0f0f0'), use_container_width=True, hide_index=True)
                 
                 # Downloadable CSV (Item 5)
                 csv_po = convert_df_to_csv(df_unmatched_pos)
