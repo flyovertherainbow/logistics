@@ -11,6 +11,7 @@ import re
 PORTCONNECT_URL = "https://www.portconnect.co.nz/#/home"
 USERNAME = "Calony.lam@ecly.co.nz"
 PASSWORD = "Eclyltd88$"
+# This is the single source of truth for the container input selector
 CONTAINER_INPUT_SELECTOR = "#txContainerInput"
 
 # --- Playwright Installation and Caching ---
@@ -123,8 +124,11 @@ def execute_login_sequence(page, USERNAME, PASSWORD, PORTCONNECT_URL, status_pla
             page.click(TRACK_AND_TRACE_SEARCH_LINK)
         
         # Wait for the specific container input field to confirm the page has loaded
-        CONTAINER_INPUT_SELECTOR = '#container-input-textarea'
-        page.wait_for_selector(CONTAINER_INPUT_SELECTOR, state="visible", timeout=15000)
+        # *** FIX ***
+        # Removed the local re-definition of CONTAINER_INPUT_SELECTOR
+        # Now uses the global variable: "#txContainerInput"
+        # Increased timeout to 30s to match navigation timeout for robustness
+        page.wait_for_selector(CONTAINER_INPUT_SELECTOR, state="visible", timeout=30000)
 
         status_placeholder.success("Navigation to Track & Trace Search confirmed!")
         return True
@@ -138,10 +142,6 @@ def execute_login_sequence(page, USERNAME, PASSWORD, PORTCONNECT_URL, status_pla
 
 
 # --- Core Scraping Logic ---
-
-# Placeholder for a missing function/variable, define it here for completeness
-CONTAINER_INPUT_SELECTOR = '#container-input-textarea' # Assuming a common ID for container input
-
 
 def run_crawler(container_list, status_placeholder):
     """
@@ -157,6 +157,11 @@ def run_crawler(container_list, status_placeholder):
     
     # Format containers for input (newline separated)
     container_input_text = "\n".join(container_list)
+    
+    # *** FIX ***
+    # Removed the local re-definition:
+    # CONTAINER_INPUT_SELECTOR = '#container-input-textarea' 
+    # The code will now use the global CONTAINER_INPUT_SELECTOR defined at the top.
     
     try:
         with sync_playwright() as p:
@@ -181,6 +186,7 @@ def run_crawler(container_list, status_placeholder):
             
             # Input container numbers. The page should already be on the correct search screen.
             # We wait for the container input field to be visible on the new search page
+            # This will now use the global CONTAINER_INPUT_SELECTOR ("#txContainerInput")
             page.wait_for_selector(CONTAINER_INPUT_SELECTOR, state="visible", timeout=10000).fill(container_input_text)
             
             # Click the search button
@@ -208,11 +214,11 @@ def run_crawler(container_list, status_placeholder):
 
             # Define headers (inferred from the table structure)
             headers = [
-                'Details_Icon', 'Port', 'Container_Number', 'Flow',  
-                'Vessel_Voyage', 'Date_Time_Hidden', 'Status_Location',  
-                'Field_7_Hidden', 'Field_8_Hidden', 'Field_9_Hidden',  
-                'Field_10_Hidden', 'Field_11_Hidden', 'Customs_Status_Icon',  
-                'Field_13_Empty', 'Field_14_Hidden', 'Field_15_Hidden',  
+                'Details_Icon', 'Port', 'Container_Number', 'Flow', 
+                'Vessel_Voyage', 'Date_Time_Hidden', 'Status_Location', 
+                'Field_7_Hidden', 'Field_8_Hidden', 'Field_9_Hidden', 
+                'Field_10_Hidden', 'Field_11_Hidden', 'Customs_Status_Icon', 
+                'Field_13_Empty', 'Field_14_Hidden', 'Field_15_Hidden', 
                 'Field_16_Hidden', 'Field_17_Hidden', 'Date_Time_Empty', 'Clock_Icon'
             ]
             
