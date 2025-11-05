@@ -190,18 +190,27 @@ def run_crawler(container_list, status_placeholder):
             # We will wait for the FIRST ROW (tr) inside the body.
             RESULTS_FIRST_ROW_SELECTOR = f"{RESULTS_TABLE_BODY_SELECTOR} tr"
             
-            status_placeholder.info("9. Waiting for search results (waiting for first row)...")
+            status_placeholder.info("9. Waiting for search request to complete (monitoring Search button state)...")
             
-            # Wait for the table body to appear after the search submission
             try:
-                # Wait until the first table row is visible (data has rendered)
-                page.wait_for_selector(RESULTS_FIRST_ROW_SELECTOR, state="visible", timeout=45000)
+                # 9a. Wait for the button to be disabled (indicating search started)
+                # This should happen quickly if the search fires an async request.
+                page.wait_for_selector(SEARCH_BUTTON_SELECTOR + ':disabled', timeout=10000)
+                status_placeholder.info("   -> Search button is disabled (request is in progress)...")
+
+                # 9b. Wait for the button to become enabled again (indicating request finished).
+                # This has the longest timeout (60s) as it relies on the server response time.
+                page.wait_for_selector(SEARCH_BUTTON_SELECTOR + ':not(:disabled)', timeout=60000)
+                status_placeholder.info("   -> Search button is re-enabled (request finished).")
                 
-                # Wait an extra second to ensure all data rendering is complete and stable before scraping.
-                page.wait_for_timeout(1000) 
+                # 9c. Now, wait a final brief time for the first row to be rendered by Angular.
+                page.wait_for_selector(RESULTS_FIRST_ROW_SELECTOR, state="visible", timeout=10000) 
+                
+                # Final safety sleep
+                page.wait_for_timeout(1000)
                 
             except PlaywrightTimeoutError:
-                status_placeholder.error("Timeout while waiting for search results. The page structure may have changed, or the search failed to execute.")
+                status_placeholder.error("Timeout while waiting for the search button state to change or for results to appear. The page structure may have changed, or the search request failed silently.")
                 browser.close()
                 return pd.DataFrame(), False 
 
