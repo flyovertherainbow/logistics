@@ -184,7 +184,7 @@ def run_crawler(container_list, status_placeholder):
             # Click the search button
             page.click(SEARCH_BUTTON_SELECTOR)
             
-            # --- 4. Scrape Results ---
+            # --- 4. Scrape Results (Dynamic Content Handling) ---
             RESULTS_TABLE_BODY_SELECTOR = "#tblImport > tbody.ng-star-inserted"
             
             # We will wait for the FIRST ROW (tr) inside the body.
@@ -204,6 +204,7 @@ def run_crawler(container_list, status_placeholder):
                 status_placeholder.info("   -> Search button is re-enabled (request finished).")
                 
                 # 9c. Now, wait a final brief time for the first row to be rendered by Angular.
+                # Since the request is finished, this should appear quickly.
                 page.wait_for_selector(RESULTS_FIRST_ROW_SELECTOR, state="visible", timeout=10000) 
                 
                 # Final safety sleep
