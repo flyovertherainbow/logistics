@@ -165,6 +165,22 @@ def run_crawler(container_list, status_placeholder):
             # Input container numbers.
             page.wait_for_selector(CONTAINER_INPUT_SELECTOR, state="visible", timeout=10000).fill(container_input_text)
             
+            # --- NEW DEBUGGING STEP: Verify input field content ---
+            try:
+                current_input = page.locator(CONTAINER_INPUT_SELECTOR).input_value()
+                display_input_list = current_input.split('\n')
+                
+                if len(display_input_list) > 5:
+                    display_summary = ", ".join(display_input_list[:5]) + "..."
+                    status_placeholder.info(f"Input verification: Successfully entered {len(display_input_list)} containers (first 5: {display_summary}).")
+                else:
+                    display_summary = ", ".join(display_input_list)
+                    status_placeholder.info(f"Input verification: Successfully entered all {len(display_input_list)} containers: {display_summary}.")
+
+            except Exception as debug_e:
+                status_placeholder.warning(f"Could not verify input value: {debug_e}")
+            # --- END DEBUGGING STEP ---
+            
             # Click the search button
             page.click(SEARCH_BUTTON_SELECTOR)
             
@@ -181,14 +197,10 @@ def run_crawler(container_list, status_placeholder):
                 # Wait until the first table row is visible (data has rendered)
                 page.wait_for_selector(RESULTS_FIRST_ROW_SELECTOR, state="visible", timeout=45000)
                 
-                # *** FIX: INCREASED FINAL SAFETY SLEEP TO 1 SECOND ***
                 # Wait an extra second to ensure all data rendering is complete and stable before scraping.
-                # This explicitly addresses the persistent 'Found 0 results' race condition.
                 page.wait_for_timeout(1000) 
                 
             except PlaywrightTimeoutError:
-                # Based on the provided HTML, even a 'Not Found' result produces a row.
-                # If the wait fails, something more fundamental has failed than just 0 results.
                 status_placeholder.error("Timeout while waiting for search results. The page structure may have changed, or the search failed to execute.")
                 browser.close()
                 return pd.DataFrame(), False 
