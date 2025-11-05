@@ -195,13 +195,21 @@ def run_crawler(container_list, status_placeholder):
             # --- 4. Scrape Results ---
             RESULTS_TABLE_BODY_SELECTOR = "#tblImport > tbody.ng-star-inserted"
             
-            status_placeholder.info("9. Waiting for search results...")
+            # *** FIX: ***
+            # We will wait for the FIRST ROW (tr) inside the body.
+            # This ensures we wait for data to be loaded, not just the empty table.
+            RESULTS_FIRST_ROW_SELECTOR = f"{RESULTS_TABLE_BODY_SELECTOR} tr"
+            
+            status_placeholder.info("9. Waiting for search results (waiting for first row)...")
             
             # Wait for the table body to appear after the search submission
             try:
-                page.wait_for_selector(RESULTS_TABLE_BODY_SELECTOR, state="attached", timeout=45000)
+                # *** MODIFIED LINE: ***
+                # Wait for the first row (RESULTS_FIRST_ROW_SELECTOR) instead of just the table body.
+                page.wait_for_selector(RESULTS_FIRST_ROW_SELECTOR, state="attached", timeout=45000)
             except PlaywrightTimeoutError:
-                status_placeholder.warning("Search results table not found or timed out. This may indicate an empty result set or an error.")
+                # If the first row *never* appears, it truly means no results were found.
+                status_placeholder.warning("Search timed out waiting for results. This likely means '0 results' were found.")
                 browser.close()
                 # Return True for success status if we suspect empty results are normal
                 return pd.DataFrame(), True 
