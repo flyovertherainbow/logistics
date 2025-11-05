@@ -14,12 +14,31 @@ PASSWORD = "Eclyltd88$"
 # This is the single source of truth for the container input selector
 CONTAINER_INPUT_SELECTOR = "#txContainerInput"
 
+# --- Streamlit Cloud Configuration ---
+# For Streamlit Cloud deployment, we need special handling
+IS_STREAMLIT_CLOUD = st.runtime.exists() if hasattr(st, 'runtime') else False
+
 # --- Playwright Installation and Caching ---
 
 @st.cache_resource(show_spinner="Setting up browser environment...")
 def install_playwright():
     """Ensures Playwright browser binaries are installed and cached."""
     try:
+        # For Streamlit Cloud, we need special handling
+        if IS_STREAMLIT_CLOUD:
+            st.info("Detected Streamlit Cloud environment - using lightweight setup...")
+            # Try to install with reduced dependencies
+            try:
+                subprocess.run([sys.executable, "-m", "playwright", "install", "chromium", "--with-deps"], 
+                             capture_output=True, text=True, check=True, timeout=120)
+                st.success("Playwright installed successfully for cloud environment")
+                return True
+            except:
+                st.warning("Standard install failed, trying minimal install...")
+                subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], 
+                             capture_output=True, text=True, check=True, timeout=120)
+                return True
+        
         st.info("Attempting to run 'playwright install chromium'...")
         result = subprocess.run(
             [sys.executable, "-m", "playwright", "install", "chromium"],
@@ -126,7 +145,7 @@ def execute_login_sequence(page, USERNAME, PASSWORD, PORTCONNECT_URL, status_pla
 
 # --- Core Scraping Logic ---
 
-def run_crawler(container_list, status_placeholder):
+def run_crawler(container_list, status_placeholder, debug_mode=False):
     """
     Executes the Playwright script to log in, search, and scrape results.
     
@@ -152,8 +171,23 @@ def run_crawler(container_list, status_placeholder):
     
     try:
         with sync_playwright() as p:
-            # Launch the browser in headless mode
-            browser = p.chromium.launch(headless=True, timeout=30000)
+            # Launch browser with cloud-optimized settings
+            if IS_STREAMLIT_CLOUD:
+                # Streamlit Cloud requires specific browser arguments
+                browser = p.chromium.launch(
+                    headless=True,  # Must be headless on cloud
+                    args=[
+                        '--no-sandbox',
+                        '--disable-dev-shm-usage',
+                        '--disable-gpu',
+                        '--disable-web-security',
+                        '--disable-features=VizDisplayCompositor'
+                    ],
+                    timeout=60000  # Longer timeout for cloud
+                )
+            else:
+                # Local development settings
+                browser = p.chromium.launch(headless=not debug_mode, timeout=30000)
             page = browser.new_page()
             
             # --- 1. Navigation ---
@@ -212,17 +246,75 @@ def run_crawler(container_list, status_placeholder):
                 page.wait_for_selector(SEARCH_BUTTON_SELECTOR + ':not(:disabled)', timeout=60000)
                 status_placeholder.info("   -> Search button is re-enabled (request finished).")
                 
-                # 9c. Now, wait a final brief time for the first row to be rendered by Angular.
-                # Since the request is finished, this should appear quickly.
-                page.wait_for_selector(RESULTS_FIRST_ROW_SELECTOR, state="visible", timeout=10000) 
+                # 9c. Enhanced waiting for results with multiple fallback strategies
+                status_placeholder.info("   -> Waiting for search results to appear...")
                 
-                # Final safety sleep
-                page.wait_for_timeout(1000)
+                # Strategy 1: Wait for results table with increased timeout
+                try:
+                    page.wait_for_selector(RESULTS_FIRST_ROW_SELECTOR, state="visible", timeout=20000)
+                    status_placeholder.info("   -> Results table detected!")
+                except PlaywrightTimeoutError:
+                    # Strategy 2: Check if "No results" message appears
+                    no_results_selector = "text='No results found'", "text='Not Found'", "text='No data'"
+                    no_results_found = False
+                    
+                    for selector in ["text='No results found'", "text='Not Found'", "text='No data'"]:
+                        try:
+                            if page.locator(selector).is_visible(timeout=2000):
+                                no_results_found = True
+                                status_placeholder.info("   -> No results message detected - this might be expected for some containers")
+                                break
+                        except:
+                            continue
+                    
+                    if not no_results_found:
+                        # Strategy 3: Check if table exists but is empty
+                        try:
+                            table_exists = page.locator(RESULTS_TABLE_BODY_SELECTOR).count() > 0
+                            if table_exists:
+                                row_count = page.locator(f'{RESULTS_TABLE_BODY_SELECTOR} tr').count()
+                                if row_count == 0:
+                                    status_placeholder.info("   -> Empty results table detected - no containers found")
+                                else:
+                                    status_placeholder.info(f"   -> Results table found with {row_count} rows")
+                            else:
+                                # Final fallback - take screenshot for debugging
+                                status_placeholder.warning("   -> Unable to detect results - taking screenshot for debugging")
+                                page.screenshot(path='debug_screenshot.png', full_page=True)
+                                raise PlaywrightTimeoutError("Could not detect search results or 'no results' message")
+                        except Exception as check_e:
+                            status_placeholder.error(f"Error checking results: {check_e}")
+                            raise PlaywrightTimeoutError("Could not determine search results status")
+                
+                # Final safety sleep for any remaining rendering
+                page.wait_for_timeout(1500)
                 
             except PlaywrightTimeoutError as e: 
-                # --- DISPLAY DETAILED ERROR ONLY ---
+                # --- ENHANCED ERROR HANDLING ---
                 status_placeholder.error(f"SEARCH RESULT TIMEOUT ERROR: {e}")
                 status_placeholder.error("The page structure may have changed, or the search request failed silently.")
+                
+                if IS_STREAMLIT_CLOUD:
+                    status_placeholder.info("Cloud Environment Troubleshooting:")
+                    status_placeholder.info("1. Container numbers may be invalid or not found")
+                    status_placeholder.info("2. Website response time may be slower on cloud")
+                    status_placeholder.info("3. Try with fewer containers first")
+                    status_placeholder.info("4. Check if login credentials are still valid")
+                else:
+                    status_placeholder.info("Troubleshooting tips:")
+                    status_placeholder.info("1. Check if container numbers are valid")
+                    status_placeholder.info("2. Website may have changed - check selectors")
+                    status_placeholder.info("3. Try running with headless=False to see what's happening")
+                    status_placeholder.info("4. Screenshot saved as 'debug_screenshot.png' for analysis")
+                
+                # Try to capture page state for debugging
+                try:
+                    page_source = page.content()
+                    if len(page_source) < 1000:  # Very short page might indicate error
+                        status_placeholder.warning("Page content seems unusually short - check login status")
+                except:
+                    pass
+                
                 # -----------------------------------
                 browser.close()
                 return pd.DataFrame(), False 
@@ -313,6 +405,10 @@ def main():
             st.error(f"Error reading file: {e}")
             container_numbers = []
 
+    # --- Debug Mode Option ---
+    debug_mode = st.checkbox("Enable Debug Mode (shows browser window)", value=False,
+                            help="Enable this to see the browser window for troubleshooting")
+    
     # --- Execution Button ---
     status_placeholder = st.empty()
     
@@ -322,7 +418,7 @@ def main():
             return
 
         # Run the crawler logic
-        df_results, success_status = run_crawler(container_numbers, status_placeholder)
+        df_results, success_status = run_crawler(container_numbers, status_placeholder, debug_mode)
         
         if success_status:
             if not df_results.empty:
