@@ -76,44 +76,31 @@ def execute_login_sequence(page, USERNAME, PASSWORD, PORTCONNECT_URL, status_pla
         
         # Click the submit button
         page.click(SUBMIT_BUTTON_SELECTOR)
-        # Wait for possible redirect or additional prompts
-        page.wait_for_timeout(8000)
-        # Log current URL and page title for debugging
-        status_placeholder.info(f"🔍 Current URL: {page.url}")
-        status_placeholder.info(f"📄 Page title: {page.title()}")
-        # Handle 'Stay signed in' prompt if present (Azure B2C)
-        try:
-            prompt_visible = page.locator("text=/Keep me signed in|Stay signed in/i").is_visible()
-        except Exception:
-            prompt_visible = False
-        if prompt_visible:
-            status_placeholder.info("🔄 'Stay signed in' prompt detected. Attempting to click 'Yes'...")
-            try:
-                yes_btn = page.get_by_role("button", name=re.compile("Yes", re.I))
-                yes_btn.wait_for(state="visible", timeout=8000)
-                yes_btn.click(timeout=5000)
-            except Exception:
-                try:
-                    page.locator('button:has-text("Yes")').wait_for(state="visible", timeout=8000)
-                    page.locator('button:has-text("Yes")').click(timeout=5000)
-                except Exception:
-                    status_placeholder.warning("Could not click 'Yes'. Proceeding without dismissing prompt.")
-            page.wait_for_timeout(2000)
         
-        # --- 4. Post-Login Wait (Resilient Check) ---
-        # Wait for the "Track and Trace" link to appear, confirming successful dashboard load.
-        status_placeholder.info("3. Waiting for authenticated dashboard to load (Waiting for 'Track and Trace' link with XPath)...")
+        # --- 4. Post-Login Wait (Simplified) ---
+        # We will now ONLY wait for the dashboard to load.
+        # Per your request, logic for "Stay signed in" has been removed.
+        status_placeholder.info("3. Waiting for authenticated dashboard to load...")
         
-        # Wait for the locator to be visible/clickable
-        page.locator(TRACK_AND_TRACE_MENU_LINK_LOCATOR).wait_for(state="visible", timeout=45000) 
+        # We look for any link with "Track and Trace" text
+        dashboard_selector = 'a:has-text("Track and Trace")' 
+        dashboard_locator = page.locator(dashboard_selector)
 
+        try:
+            dashboard_locator.wait_for(state="visible", timeout=45000)
+        except PlaywrightTimeoutError:
+            status_placeholder.error("Timeout after login: Dashboard link ('Track and Trace') did not appear.")
+            status_placeholder.error("This may be due to a 'Stay Signed In' prompt (which this script now ignores) or incorrect credentials.")
+            return False
+            
         status_placeholder.success("Signed in successfully!")
 
         # --- 5. Navigate to Search ---
         status_placeholder.info("4. Navigating to Track and Trace Search page...")
         
-        # 5a. Click the 'Track and Trace' link to open the dropdown 
-        page.locator(TRACK_AND_TRACE_MENU_LINK).click(timeout=15000)
+        # 5a. Click the 'Track and Trace' link to open the dropdown
+        # We now use the robust dashboard_locator we found earlier
+        dashboard_locator.click(timeout=15000)
 
         # 5b. Wait for the 'Search' link to appear and click it
         status_placeholder.info("Clicking Search link...")
