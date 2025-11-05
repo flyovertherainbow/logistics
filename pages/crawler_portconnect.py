@@ -141,6 +141,15 @@ def run_crawler(container_list, status_placeholder):
     # Format containers for input (newline separated)
     container_input_text = "\n".join(container_list)
     
+    # --- Container Summary for Error Reporting (New) ---
+    if len(container_list) > 5:
+        container_summary = ", ".join(container_list[:5]) + f", and {len(container_list) - 5} more."
+    elif container_list:
+        container_summary = ", ".join(container_list)
+    else:
+        container_summary = "None."
+    # ----------------------------------------------------
+    
     try:
         with sync_playwright() as p:
             # Launch the browser in headless mode
@@ -171,11 +180,11 @@ def run_crawler(container_list, status_placeholder):
                 display_input_list = current_input.split('\n')
                 
                 if len(display_input_list) > 5:
-                    display_summary = ", ".join(display_input_list[:5]) + "..."
-                    status_placeholder.info(f"Input verification: Successfully entered {len(display_input_list)} containers (first 5: {display_summary}).")
+                    display_preview = ", ".join(display_input_list[:5]) + "..."
+                    status_placeholder.info(f"Input verification: Successfully entered {len(display_input_list)} containers (first 5: {display_preview}).")
                 else:
-                    display_summary = ", ".join(display_input_list)
-                    status_placeholder.info(f"Input verification: Successfully entered all {len(display_input_list)} containers: {display_summary}.")
+                    display_preview = ", ".join(display_input_list)
+                    status_placeholder.info(f"Input verification: Successfully entered all {len(display_input_list)} containers: {display_preview}.")
 
             except Exception as debug_e:
                 status_placeholder.warning(f"Could not verify input value: {debug_e}")
@@ -212,6 +221,9 @@ def run_crawler(container_list, status_placeholder):
                 
             except PlaywrightTimeoutError:
                 status_placeholder.error("Timeout while waiting for the search button state to change or for results to appear. The page structure may have changed, or the search request failed silently.")
+                # --- DISPLAY CONTAINER SUMMARY ON ERROR ---
+                status_placeholder.error(f"The search was attempted with the following containers (or first few): **{container_summary}**")
+                # -----------------------------------------
                 browser.close()
                 return pd.DataFrame(), False 
 
@@ -251,6 +263,9 @@ def run_crawler(container_list, status_placeholder):
             
     except PlaywrightTimeoutError as e:
         status_placeholder.error(f"Playwright timed out during execution: {e}. A critical step exceeded the maximum wait time.")
+        # --- DISPLAY CONTAINER SUMMARY ON ERROR ---
+        status_placeholder.error(f"The operation was running for containers: **{container_summary}**")
+        # -----------------------------------------
         try:
             browser.close()
         except:
@@ -332,3 +347,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
