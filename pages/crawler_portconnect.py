@@ -141,14 +141,14 @@ def run_crawler(container_list, status_placeholder):
     # Format containers for input (newline separated)
     container_input_text = "\n".join(container_list)
     
-    # --- Container Summary for Error Reporting (New) ---
+    # --- Container Summary for Error Reporting (Not displayed on Playwright Timeout) ---
     if len(container_list) > 5:
         container_summary = ", ".join(container_list[:5]) + f", and {len(container_list) - 5} more."
     elif container_list:
         container_summary = ", ".join(container_list)
     else:
         container_summary = "None."
-    # ----------------------------------------------------
+    # ------------------------------------------------------------------------------------
     
     try:
         with sync_playwright() as p:
@@ -219,12 +219,11 @@ def run_crawler(container_list, status_placeholder):
                 # Final safety sleep
                 page.wait_for_timeout(1000)
                 
-            except PlaywrightTimeoutError as e: # Catching the specific exception here
-                # --- DISPLAY DETAILED ERROR AND CONTAINER SUMMARY ---
+            except PlaywrightTimeoutError as e: 
+                # --- DISPLAY DETAILED ERROR ONLY ---
                 status_placeholder.error(f"SEARCH RESULT TIMEOUT ERROR: {e}")
                 status_placeholder.error("The page structure may have changed, or the search request failed silently.")
-                status_placeholder.error(f"The search was attempted with the following containers (or first few): **{container_summary}**")
-                # ----------------------------------------------------
+                # -----------------------------------
                 browser.close()
                 return pd.DataFrame(), False 
 
@@ -265,7 +264,6 @@ def run_crawler(container_list, status_placeholder):
     except PlaywrightTimeoutError as e:
         # This is the catch-all for any other Playwright timeout (e.g., during login/navigation)
         status_placeholder.error(f"CRITICAL TIMEOUT DURING CRAWLER EXECUTION: {e}")
-        status_placeholder.error(f"The operation was running for containers: **{container_summary}**")
         try:
             browser.close()
         except:
