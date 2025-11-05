@@ -219,11 +219,12 @@ def run_crawler(container_list, status_placeholder):
                 # Final safety sleep
                 page.wait_for_timeout(1000)
                 
-            except PlaywrightTimeoutError:
-                status_placeholder.error("Timeout while waiting for the search button state to change or for results to appear. The page structure may have changed, or the search request failed silently.")
-                # --- DISPLAY CONTAINER SUMMARY ON ERROR ---
+            except PlaywrightTimeoutError as e: # Catching the specific exception here
+                # --- DISPLAY DETAILED ERROR AND CONTAINER SUMMARY ---
+                status_placeholder.error(f"SEARCH RESULT TIMEOUT ERROR: {e}")
+                status_placeholder.error("The page structure may have changed, or the search request failed silently.")
                 status_placeholder.error(f"The search was attempted with the following containers (or first few): **{container_summary}**")
-                # -----------------------------------------
+                # ----------------------------------------------------
                 browser.close()
                 return pd.DataFrame(), False 
 
@@ -262,10 +263,9 @@ def run_crawler(container_list, status_placeholder):
             return df, True
             
     except PlaywrightTimeoutError as e:
-        status_placeholder.error(f"Playwright timed out during execution: {e}. A critical step exceeded the maximum wait time.")
-        # --- DISPLAY CONTAINER SUMMARY ON ERROR ---
+        # This is the catch-all for any other Playwright timeout (e.g., during login/navigation)
+        status_placeholder.error(f"CRITICAL TIMEOUT DURING CRAWLER EXECUTION: {e}")
         status_placeholder.error(f"The operation was running for containers: **{container_summary}**")
-        # -----------------------------------------
         try:
             browser.close()
         except:
