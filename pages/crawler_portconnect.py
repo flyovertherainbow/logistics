@@ -111,10 +111,6 @@ def execute_login_sequence(page, USERNAME, PASSWORD, PORTCONNECT_URL, status_pla
             page.click(TRACK_AND_TRACE_SEARCH_LINK)
         
         # Wait for the specific container input field to confirm the page has loaded
-        # *** FIX ***
-        # Removed the local re-definition of CONTAINER_INPUT_SELECTOR
-        # Now uses the global variable: "#txContainerInput"
-        # Increased timeout to 30s to match navigation timeout for robustness
         page.wait_for_selector(CONTAINER_INPUT_SELECTOR, state="visible", timeout=30000)
 
         status_placeholder.success("Navigation to Track & Trace Search confirmed!")
@@ -145,11 +141,6 @@ def run_crawler(container_list, status_placeholder):
     # Format containers for input (newline separated)
     container_input_text = "\n".join(container_list)
     
-    # *** FIX ***
-    # Removed the local re-definition:
-    # CONTAINER_INPUT_SELECTOR = '#container-input-textarea' 
-    # The code will now use the global CONTAINER_INPUT_SELECTOR defined at the top.
-    
     try:
         with sync_playwright() as p:
             # Launch the browser in headless mode
@@ -169,11 +160,9 @@ def run_crawler(container_list, status_placeholder):
             # --- 3. Perform Search ---
             SEARCH_BUTTON_SELECTOR = 'div.search-item-button > button.btn.btn-primary:text("Search")'
             
-            status_placeholder.info("8. Inputting container numbers and searching...") # Step 8, continuing from login sequence's Step 7
+            status_placeholder.info("8. Inputting container numbers and searching...")
             
-            # Input container numbers. The page should already be on the correct search screen.
-            # We wait for the container input field to be visible on the new search page
-            # This will now use the global CONTAINER_INPUT_SELECTOR ("#txContainerInput")
+            # Input container numbers.
             page.wait_for_selector(CONTAINER_INPUT_SELECTOR, state="visible", timeout=10000).fill(container_input_text)
             
             # Click the search button
@@ -182,24 +171,27 @@ def run_crawler(container_list, status_placeholder):
             # --- 4. Scrape Results ---
             RESULTS_TABLE_BODY_SELECTOR = "#tblImport > tbody.ng-star-inserted"
             
-            # *** FIX: ***
             # We will wait for the FIRST ROW (tr) inside the body.
-            # This ensures we wait for data to be loaded, not just the empty table.
             RESULTS_FIRST_ROW_SELECTOR = f"{RESULTS_TABLE_BODY_SELECTOR} tr"
             
             status_placeholder.info("9. Waiting for search results (waiting for first row)...")
             
             # Wait for the table body to appear after the search submission
             try:
-                # *** MODIFIED LINE: ***
-                # Wait for the first row (RESULTS_FIRST_ROW_SELECTOR) instead of just the table body.
-                page.wait_for_selector(RESULTS_FIRST_ROW_SELECTOR, state="attached", timeout=45000)
+                # Wait until the first table row is visible (data has rendered)
+                page.wait_for_selector(RESULTS_FIRST_ROW_SELECTOR, state="visible", timeout=45000)
+                
+                # *** FIX: INCREASED FINAL SAFETY SLEEP TO 1 SECOND ***
+                # Wait an extra second to ensure all data rendering is complete and stable before scraping.
+                # This explicitly addresses the persistent 'Found 0 results' race condition.
+                page.wait_for_timeout(1000) 
+                
             except PlaywrightTimeoutError:
-                # If the first row *never* appears, it truly means no results were found.
-                status_placeholder.warning("Search timed out waiting for results. This likely means '0 results' were found.")
+                # Based on the provided HTML, even a 'Not Found' result produces a row.
+                # If the wait fails, something more fundamental has failed than just 0 results.
+                status_placeholder.error("Timeout while waiting for search results. The page structure may have changed, or the search failed to execute.")
                 browser.close()
-                # Return True for success status if we suspect empty results are normal
-                return pd.DataFrame(), True 
+                return pd.DataFrame(), False 
 
             status_placeholder.info("10. Extracting data from results table...")
             
@@ -207,23 +199,24 @@ def run_crawler(container_list, status_placeholder):
             rows = page.locator(f'{RESULTS_TABLE_BODY_SELECTOR} tr').all()
             scraped_data = []
 
-            # Define headers (inferred from the table structure)
+            # Define headers based on the HTML provided by the user (matching both "Not Found" and "Found" structure)
             headers = [
-                'Details_Icon', 'Port', 'Container_Number', 'Flow', 
-                'Vessel_Voyage', 'Date_Time_Hidden', 'Status_Location', 
-                'Field_7_Hidden', 'Field_8_Hidden', 'Field_9_Hidden', 
-                'Field_10_Hidden', 'Field_11_Hidden', 'Customs_Status_Icon', 
-                'Field_13_Empty', 'Field_14_Hidden', 'Field_15_Hidden', 
-                'Field_16_Hidden', 'Field_17_Hidden', 'Date_Time_Empty', 'Clock_Icon'
+                'Detail_Icon', 'Port', 'Container', 'Category', 
+                'Vessel_Visit', 'VesselETA/ATA_Hidden', 'Location', 
+                'Status_Hidden', 'MTReturn_Hidden', 'ISO_Hidden', 
+                'Weight(Kg)_Hidden', 'SecurityCheck_Hidden', 'Cleared', 
+                'Impediments', 'ImpedimentGroups_Hidden', 'Temp_Hidden', 
+                'Hazard_Hidden', 'OverSize_Hidden', 'Last_FreeTime', 'History_Icon'
             ]
             
             for row in rows:
                 cols = row.locator('td').all_text_contents()
                 # Clean up extracted texts
+                # The Impediments column (index 13) contains divs, all_text_contents should flatten it.
                 cleaned_cols = [c.strip().replace('\n', ' ') for c in cols]
-                # Filter out the empty column at index 13 if it's always empty
-                if len(cleaned_cols) == 20: # Match the inferred 20 columns
-                    # The first column is usually an icon, skip it in clean data if it's not useful
+                
+                # We expect 20 columns (0-19). Skip the first column (Detail Icon) for the final DataFrame.
+                if len(cleaned_cols) == 20: 
                     scraped_data.append(cleaned_cols[1:]) # Start from Port
             
             browser.close()
@@ -313,7 +306,7 @@ def main():
                     key='download-csv'
                 )
             else:
-                st.info("The search completed but returned no results. Please check your container numbers and the website status.")
+                st.info("The search completed but returned no results. This is expected if all containers were marked as 'Not Found'.")
 
 if __name__ == "__main__":
     main()
