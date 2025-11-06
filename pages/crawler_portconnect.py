@@ -8,10 +8,10 @@ import time
 import re
 
 # --- Configuration ---
-PORTCONNECT_URL = "https://portconnect.ecly.co.nz/"
-USERNAME = "james@ecly.co.nz"
-PASSWORD = "Ecly2024!"
-CONTAINER_INPUT_SELECTOR = "#txtContainerNo"
+PORTCONNECT_URL = "https://www.portconnect.co.nz/#/home"
+USERNAME = "Calony.lam@ecly.co.nz"
+PASSWORD = "Eclyltd88$"
+CONTAINER_INPUT_SELECTOR = "#txContainerInput"
 
 # Search timeout configuration (in seconds)
 SEARCH_TIMEOUT = 30  # Increased from default for better reliability
