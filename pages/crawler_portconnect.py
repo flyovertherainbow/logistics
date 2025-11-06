@@ -14,7 +14,7 @@ PASSWORD = "Eclyltd88$"
 CONTAINER_INPUT_SELECTOR = "#txContainerInput"
 
 # Search timeout configuration (in seconds)
-SEARCH_TIMEOUT = 30  # Increased from default for better reliability
+SEARCH_TIMEOUT = 10  # Reduced for faster response while maintaining reliability
 
 # Detect if running on Streamlit Cloud
 IS_STREAMLIT_CLOUD = st.runtime.exists() if hasattr(st, 'runtime') else False
@@ -259,7 +259,8 @@ def run_crawler(container_list, status_placeholder, debug_mode=False):
             page.click(SEARCH_BUTTON_SELECTOR)
             
             # --- 4. Scrape Results (Simplified and Improved) ---
-            RESULTS_TABLE_BODY_SELECTOR = "#tblImport > tbody.ng-star-inserted"
+            # Updated selectors based on actual HTML structure
+            RESULTS_TABLE_BODY_SELECTOR = "tbody.ng-star-inserted"
             RESULTS_FIRST_ROW_SELECTOR = f"{RESULTS_TABLE_BODY_SELECTOR} tr"
             
             status_placeholder.info(f"9. Waiting for search results (timeout: {SEARCH_TIMEOUT}s)...")
@@ -279,6 +280,12 @@ def run_crawler(container_list, status_placeholder, debug_mode=False):
                     if page.locator(RESULTS_FIRST_ROW_SELECTOR).first.is_visible(timeout=5000):
                         results_found = True
                         status_placeholder.info("   -> Results table detected!")
+                        
+                        # Additional check: Look for our specific container
+                        for container in container_list:
+                            if page.locator(f"td:has-text('{container}')").count() > 0:
+                                status_placeholder.info(f"   -> Found container: {container}")
+                                break
                 except:
                     pass
                 
@@ -348,6 +355,26 @@ def run_crawler(container_list, status_placeholder, debug_mode=False):
 
             status_placeholder.info("10. Extracting data from results table...")
             
+            # Debug: Check what we actually find on the page
+            try:
+                # Check if our table selector finds anything
+                table_count = page.locator(RESULTS_TABLE_BODY_SELECTOR).count()
+                status_placeholder.info(f"   -> Found {table_count} results tables")
+                
+                # Check for any table with our container
+                container_found = False
+                for container in container_list:
+                    if page.locator(f"td:has-text('{container}')").count() > 0:
+                        container_found = True
+                        status_placeholder.info(f"   -> Container '{container}' found in page")
+                        break
+                
+                if not container_found:
+                    status_placeholder.warning(f"   -> No containers found in page content")
+                    
+            except Exception as debug_e:
+                status_placeholder.warning(f"   -> Debug check failed: {debug_e}")
+            
             # Scrape all rows
             rows = page.locator(f'{RESULTS_TABLE_BODY_SELECTOR} tr').all()
             scraped_data = []
@@ -363,14 +390,26 @@ def run_crawler(container_list, status_placeholder, debug_mode=False):
             ]
             
             for row in rows:
-                cols = row.locator('td').all_text_contents()
-                # Clean up extracted texts
-                # The Impediments column (index 13) contains divs, all_text_contents should flatten it.
-                cleaned_cols = [c.strip().replace('\n', ' ') for c in cols]
-                
-                # We expect 20 columns (0-19). Skip the first column (Detail Icon) for the final DataFrame.
-                if len(cleaned_cols) == 20: 
-                    scraped_data.append(cleaned_cols[1:]) # Start from Port
+                cols = row.locator('td').all()
+                if len(cols) == 20:  # Only process complete rows
+                    row_data = []
+                    for i, col in enumerate(cols):
+                        # Handle special cases for columns with complex content
+                        if i == 13:  # Impediments column with divs
+                            impediments = col.locator('div').all_text_contents()
+                            row_data.append(' '.join(impediments).strip() if impediments else '')
+                        elif i == 12:  # Cleared column with icons
+                            cleared_text = col.text_content().strip()
+                            # Check for cross icon (not cleared)
+                            if col.locator('.fa-times').count() > 0:
+                                row_data.append('No')
+                            else:
+                                row_data.append(cleared_text or 'Yes')
+                        else:
+                            row_data.append(col.text_content().strip())
+                    
+                    # Skip the first column (Detail Icon) for the final DataFrame
+                    scraped_data.append(row_data[1:])
             
             browser.close()
 
@@ -468,3 +507,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
