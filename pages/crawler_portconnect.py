@@ -8,14 +8,15 @@ import time
 import re
 
 # --- Configuration ---
-PORTCONNECT_URL = "https://www.portconnect.co.nz/#/home"
-USERNAME = "Calony.lam@ecly.co.nz"
-PASSWORD = "Eclyltd88$"
-# This is the single source of truth for the container input selector
-CONTAINER_INPUT_SELECTOR = "#txContainerInput"
+PORTCONNECT_URL = "https://portconnect.ecly.co.nz/"
+USERNAME = "james@ecly.co.nz"
+PASSWORD = "Ecly2024!"
+CONTAINER_INPUT_SELECTOR = "#txtContainerNo"
 
-# --- Streamlit Cloud Configuration ---
-# For Streamlit Cloud deployment, we need special handling
+# Search timeout configuration (in seconds)
+SEARCH_TIMEOUT = 30  # Increased from default for better reliability
+
+# Detect if running on Streamlit Cloud
 IS_STREAMLIT_CLOUD = st.runtime.exists() if hasattr(st, 'runtime') else False
 
 # --- Playwright Installation and Caching ---
@@ -33,11 +34,19 @@ def install_playwright():
                              capture_output=True, text=True, check=True, timeout=120)
                 st.success("Playwright installed successfully for cloud environment")
                 return True
-            except:
-                st.warning("Standard install failed, trying minimal install...")
-                subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], 
-                             capture_output=True, text=True, check=True, timeout=120)
-                return True
+            except subprocess.CalledProcessError as e:
+                st.warning(f"Standard install failed: {e.stderr}")
+                st.warning("Trying minimal install...")
+                try:
+                    result = subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], 
+                                 capture_output=True, text=True, check=True, timeout=120)
+                    st.success("Minimal install successful")
+                    st.text(f"Minimal install output: {result.stdout}")
+                    return True
+                except subprocess.CalledProcessError as e2:
+                    st.error(f"Minimal install also failed: {e2.stderr}")
+                    st.error("Playwright installation failed completely")
+                    return False
         
         st.info("Attempting to run 'playwright install chromium'...")
         result = subprocess.run(
@@ -109,7 +118,29 @@ def execute_login_sequence(page, USERNAME, PASSWORD, PORTCONNECT_URL, status_pla
             dashboard_locator.wait_for(state="visible", timeout=45000)
         except PlaywrightTimeoutError:
             status_placeholder.error("Timeout after login: Dashboard link ('Track and Trace') did not appear.")
-            status_placeholder.error("This may be due to a 'Stay Signed In' prompt (which this script now ignores) or incorrect credentials.")
+            status_placeholder.error("This may be due to:")
+            status_placeholder.error("1. Invalid credentials (check username/password)")
+            status_placeholder.error("2. Account locked or suspended")
+            status_placeholder.error("3. 'Stay Signed In' prompt (which this script now ignores)")
+            status_placeholder.error("4. Website structure changes")
+            
+            # Try to capture more diagnostic info
+            try:
+                current_url = page.url
+                page_content = page.content()
+                status_placeholder.info(f"Current URL: {current_url}")
+                
+                if "login" in current_url.lower():
+                    status_placeholder.error("Still on login page - credentials likely invalid")
+                if "error" in page_content.lower():
+                    status_placeholder.error("Error message detected on page")
+                    
+                # Save diagnostic screenshot
+                page.screenshot(path="login_failure_diagnostic.png")
+                
+            except Exception as diag_e:
+                status_placeholder.warning(f"Could not capture diagnostic info: {diag_e}")
+                
             return False
             
         status_placeholder.success("Signed in successfully!")
@@ -227,97 +258,93 @@ def run_crawler(container_list, status_placeholder, debug_mode=False):
             # Click the search button
             page.click(SEARCH_BUTTON_SELECTOR)
             
-            # --- 4. Scrape Results (Dynamic Content Handling) ---
+            # --- 4. Scrape Results (Simplified and Improved) ---
             RESULTS_TABLE_BODY_SELECTOR = "#tblImport > tbody.ng-star-inserted"
-            
-            # We will wait for the FIRST ROW (tr) inside the body.
             RESULTS_FIRST_ROW_SELECTOR = f"{RESULTS_TABLE_BODY_SELECTOR} tr"
             
-            status_placeholder.info("9. Waiting for search request to complete (monitoring Search button state)...")
+            status_placeholder.info(f"9. Waiting for search results (timeout: {SEARCH_TIMEOUT}s)...")
             
             try:
-                # 9a. Wait for the button to be disabled (indicating search started)
-                # This should happen quickly if the search fires an async request.
-                page.wait_for_selector(SEARCH_BUTTON_SELECTOR + ':disabled', timeout=10000)
-                status_placeholder.info("   -> Search button is disabled (request is in progress)...")
-
-                # 9b. Wait for the button to become enabled again (indicating request finished).
-                # This has the longest timeout (60s) as it relies on the server response time.
-                page.wait_for_selector(SEARCH_BUTTON_SELECTOR + ':not(:disabled)', timeout=60000)
-                status_placeholder.info("   -> Search button is re-enabled (request finished).")
+                # Simplified approach: Wait for either results OR no results message
+                # Give the search time to process (configurable timeout)
+                status_placeholder.info(f"   -> Waiting {SEARCH_TIMEOUT} seconds for search to complete...")
+                page.wait_for_timeout(SEARCH_TIMEOUT * 1000)  # Convert to milliseconds
                 
-                # 9c. Enhanced waiting for results with multiple fallback strategies
-                status_placeholder.info("   -> Waiting for search results to appear...")
+                # Check multiple possible outcomes
+                results_found = False
+                no_results_found = False
                 
-                # Strategy 1: Wait for results table with increased timeout
+                # Strategy 1: Check if results table appears
                 try:
-                    page.wait_for_selector(RESULTS_FIRST_ROW_SELECTOR, state="visible", timeout=20000)
-                    status_placeholder.info("   -> Results table detected!")
-                except PlaywrightTimeoutError:
-                    # Strategy 2: Check if "No results" message appears
-                    no_results_selector = "text='No results found'", "text='Not Found'", "text='No data'"
-                    no_results_found = False
-                    
-                    for selector in ["text='No results found'", "text='Not Found'", "text='No data'"]:
-                        try:
-                            if page.locator(selector).is_visible(timeout=2000):
-                                no_results_found = True
-                                status_placeholder.info("   -> No results message detected - this might be expected for some containers")
-                                break
-                        except:
-                            continue
-                    
-                    if not no_results_found:
-                        # Strategy 3: Check if table exists but is empty
-                        try:
-                            table_exists = page.locator(RESULTS_TABLE_BODY_SELECTOR).count() > 0
-                            if table_exists:
-                                row_count = page.locator(f'{RESULTS_TABLE_BODY_SELECTOR} tr').count()
-                                if row_count == 0:
-                                    status_placeholder.info("   -> Empty results table detected - no containers found")
-                                else:
-                                    status_placeholder.info(f"   -> Results table found with {row_count} rows")
-                            else:
-                                # Final fallback - take screenshot for debugging
-                                status_placeholder.warning("   -> Unable to detect results - taking screenshot for debugging")
-                                page.screenshot(path='debug_screenshot.png', full_page=True)
-                                raise PlaywrightTimeoutError("Could not detect search results or 'no results' message")
-                        except Exception as check_e:
-                            status_placeholder.error(f"Error checking results: {check_e}")
-                            raise PlaywrightTimeoutError("Could not determine search results status")
-                
-                # Final safety sleep for any remaining rendering
-                page.wait_for_timeout(1500)
-                
-            except PlaywrightTimeoutError as e: 
-                # --- ENHANCED ERROR HANDLING ---
-                status_placeholder.error(f"SEARCH RESULT TIMEOUT ERROR: {e}")
-                status_placeholder.error("The page structure may have changed, or the search request failed silently.")
-                
-                if IS_STREAMLIT_CLOUD:
-                    status_placeholder.info("Cloud Environment Troubleshooting:")
-                    status_placeholder.info("1. Container numbers may be invalid or not found")
-                    status_placeholder.info("2. Website response time may be slower on cloud")
-                    status_placeholder.info("3. Try with fewer containers first")
-                    status_placeholder.info("4. Check if login credentials are still valid")
-                else:
-                    status_placeholder.info("Troubleshooting tips:")
-                    status_placeholder.info("1. Check if container numbers are valid")
-                    status_placeholder.info("2. Website may have changed - check selectors")
-                    status_placeholder.info("3. Try running with headless=False to see what's happening")
-                    status_placeholder.info("4. Screenshot saved as 'debug_screenshot.png' for analysis")
-                
-                # Try to capture page state for debugging
-                try:
-                    page_source = page.content()
-                    if len(page_source) < 1000:  # Very short page might indicate error
-                        status_placeholder.warning("Page content seems unusually short - check login status")
+                    if page.locator(RESULTS_FIRST_ROW_SELECTOR).first.is_visible(timeout=5000):
+                        results_found = True
+                        status_placeholder.info("   -> Results table detected!")
                 except:
                     pass
                 
-                # -----------------------------------
-                browser.close()
-                return pd.DataFrame(), False 
+                # Strategy 2: If no results, check for "no results" messages
+                if not results_found:
+                    no_results_texts = ["No results found", "Not Found", "No data", "No containers found"]
+                    for text in no_results_texts:
+                        try:
+                            if page.locator(f"text='{text}'").is_visible(timeout=2000):
+                                no_results_found = True
+                                status_placeholder.info(f"   -> '{text}' message detected")
+                                break
+                        except:
+                            continue
+                
+                # Strategy 3: Check if table exists (even if empty)
+                if not results_found and not no_results_found:
+                    try:
+                        table_exists = page.locator(RESULTS_TABLE_BODY_SELECTOR).count() > 0
+                        if table_exists:
+                            row_count = page.locator(f'{RESULTS_TABLE_BODY_SELECTOR} tr').count()
+                            status_placeholder.info(f"   -> Table found with {row_count} rows")
+                            if row_count > 0:
+                                results_found = True
+                            else:
+                                no_results_found = True
+                        else:
+                            status_placeholder.warning("   -> No results table found")
+                    except:
+                        pass
+                
+                # Strategy 4: Check page content for clues
+                if not results_found and not no_results_found:
+                    try:
+                        page_content = page.text_content()
+                        if "no results" in page_content.lower() or "not found" in page_content.lower():
+                            no_results_found = True
+                            status_placeholder.info("   -> 'No results' detected in page content")
+                        elif "container" in page_content.lower():
+                            # Page mentions containers but we can't find results - take screenshot
+                            page.screenshot(path='debug_search_results.png', full_page=True)
+                            status_placeholder.warning("   -> Page mentions containers but results unclear - screenshot saved")
+                    except:
+                        pass
+                
+                # Final determination
+                if results_found:
+                    status_placeholder.success("   -> Search completed successfully!")
+                elif no_results_found:
+                    status_placeholder.info("   -> Search completed: No results found for these containers")
+                else:
+                    # Take screenshot for debugging
+                    page.screenshot(path='debug_search_timeout.png', full_page=True)
+                    status_placeholder.warning("   -> Search results unclear - screenshot saved for debugging")
+                    # Don't treat this as fatal - continue with empty results
+                    
+                # Small delay for any final rendering
+                page.wait_for_timeout(1000)
+                
+            except Exception as search_e:
+                status_placeholder.error(f"Error during search: {search_e}")
+                # Take screenshot and continue with empty results
+                try:
+                    page.screenshot(path='debug_search_error.png', full_page=True)
+                except:
+                    pass 
 
             status_placeholder.info("10. Extracting data from results table...")
             
