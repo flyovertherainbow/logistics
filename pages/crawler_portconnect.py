@@ -1,4 +1,3 @@
-import streamlit as st
 import pandas as pd
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 import subprocess
@@ -6,6 +5,18 @@ import sys
 import io
 import time
 import re
+
+# Try to import Streamlit, but make it optional
+try:
+    import streamlit as st
+    HAS_STREAMLIT = True
+except ImportError:
+    HAS_STREAMLIT = False
+    # Create a mock Streamlit module for compatibility
+    class MockStreamlit:
+        def __getattr__(self, name):
+            return lambda *args, **kwargs: None
+    st = MockStreamlit()
 
 # --- Configuration ---
 PORTCONNECT_URL = "https://www.portconnect.co.nz/#/home"
@@ -16,53 +27,66 @@ CONTAINER_INPUT_SELECTOR = "#txContainerInput"
 # Search timeout configuration (in seconds)
 SEARCH_TIMEOUT = 10  # Reduced for faster response while maintaining reliability
 
-# Detect if running on Streamlit Cloud
-IS_STREAMLIT_CLOUD = st.runtime.exists() if hasattr(st, 'runtime') else False
+# Detect if running on Streamlit Cloud (only if Streamlit is available)
+IS_STREAMLIT_CLOUD = st.runtime.exists() if HAS_STREAMLIT and hasattr(st, 'runtime') else False
 
 # --- Playwright Installation and Caching ---
 
-@st.cache_resource(show_spinner="Setting up browser environment...")
 def install_playwright():
     """Ensures Playwright browser binaries are installed and cached."""
     try:
         # For Streamlit Cloud, we need special handling
         if IS_STREAMLIT_CLOUD:
-            st.info("Detected Streamlit Cloud environment - using lightweight setup...")
+            if HAS_STREAMLIT:
+                st.info("Detected Streamlit Cloud environment - using lightweight setup...")
             # Try to install with reduced dependencies
             try:
                 subprocess.run([sys.executable, "-m", "playwright", "install", "chromium", "--with-deps"], 
                              capture_output=True, text=True, check=True, timeout=120)
-                st.success("Playwright installed successfully for cloud environment")
+                if HAS_STREAMLIT:
+                    st.success("Playwright installed successfully for cloud environment")
                 return True
             except subprocess.CalledProcessError as e:
-                st.warning(f"Standard install failed: {e.stderr}")
-                st.warning("Trying minimal install...")
+                if HAS_STREAMLIT:
+                    st.warning(f"Standard install failed: {e.stderr}")
+                    st.warning("Trying minimal install...")
                 try:
                     result = subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], 
                                  capture_output=True, text=True, check=True, timeout=120)
-                    st.success("Minimal install successful")
-                    st.text(f"Minimal install output: {result.stdout}")
+                    if HAS_STREAMLIT:
+                        st.success("Minimal install successful")
+                        st.text(f"Minimal install output: {result.stdout}")
                     return True
                 except subprocess.CalledProcessError as e2:
-                    st.error(f"Minimal install also failed: {e2.stderr}")
-                    st.error("Playwright installation failed completely")
+                    if HAS_STREAMLIT:
+                        st.error(f"Minimal install also failed: {e2.stderr}")
+                        st.error("Playwright installation failed completely")
                     return False
         
-        st.info("Attempting to run 'playwright install chromium'...")
+        if HAS_STREAMLIT:
+            st.info("Attempting to run 'playwright install chromium'...")
         result = subprocess.run(
             [sys.executable, "-m", "playwright", "install", "chromium"],
             capture_output=True,
             text=True,
             check=True
         )
-        st.success(f"Playwright install successful: {result.stdout.strip()}")
+        if HAS_STREAMLIT:
+            st.success(f"Playwright install successful: {result.stdout.strip()}")
         return True
     except subprocess.CalledProcessError as e:
-        st.error(f"Playwright installation failed. Stderr: {e.stderr.strip()}")
-        st.error("Please ensure the environment supports running external commands.")
+        if HAS_STREAMLIT:
+            st.error(f"Playwright installation failed. Stderr: {e.stderr.strip()}")
+            st.error("Please ensure the environment supports running external commands.")
+        else:
+            print(f"Playwright installation failed. Stderr: {e.stderr.strip()}")
+            print("Please ensure the environment supports running external commands.")
         return False
     except Exception as e:
-        st.error(f"Unexpected error during Playwright setup: {e}")
+        if HAS_STREAMLIT:
+            st.error(f"Unexpected error during Playwright setup: {e}")
+        else:
+            print(f"Unexpected error during Playwright setup: {e}")
         return False
 
 #login
@@ -507,4 +531,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
