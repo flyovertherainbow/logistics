@@ -41,7 +41,7 @@ def install_playwright():
                 st.info("Detected Streamlit Cloud environment - using lightweight setup...")
             # Try to install with reduced dependencies
             try:
-                subprocess.run([sys.executable, "-m", "playwright", "install", "chromium", "--with-deps"], 
+                subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], 
                              capture_output=True, text=True, check=True, timeout=120)
                 if HAS_STREAMLIT:
                     st.success("Playwright installed successfully for cloud environment")
