@@ -1,1 +1,24 @@
-chromium
+# System packages for Streamlit Cloud to support Playwright + Chromium
+# Streamlit Cloud installs these automatically from apt when packages.txt is present.
+libnss3
+libglib2.0-0
+libatk1.0-0
+libatk-bridge2.0-0
+libdrm2
+libxkbcommon0
+libxcomposite1
+libxdamage1
+libxfixes3
+libxcb1
+libxrandr2
+libgbm1
+libgtk-3-0
+libpango-1.0-0
+libpangocairo-1.0-0
+libasound2
+libxshmfence1
+libxext6
+libx11-6
+fonts-liberation
+libcairo2
+libcups2
