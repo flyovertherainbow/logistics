@@ -10,3 +10,6 @@ port = 8501
 # We set this to 0 as it's the simplest way to run a pre-start command.
 runOnSave = true
 #runBeforeMainCommand = "bash post_install.sh"
+
+[browser]
+gatherUsageStats = false
