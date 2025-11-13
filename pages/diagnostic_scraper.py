@@ -330,12 +330,24 @@ st.markdown("---")
 st.markdown("### 📸 Debug Screenshots")
 if st.button("Refresh Screenshots"):
     try:
+        import os
+        def mtime_caption(path, base_caption):
+            try:
+                ts = os.path.getmtime(path)
+                ts_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts))
+                return f"{base_caption} • {ts_str}"
+            except Exception:
+                return base_caption
         col1, col2 = st.columns(2)
         with col1:
-            st.image("debug_home_page.png", caption="Home Page")
-            st.image("debug_form_filled.png", caption="Login Form Filled")
+            with open("debug_home_page.png", "rb") as f:
+                st.image(f.read(), caption=mtime_caption("debug_home_page.png", "Home Page"))
+            with open("debug_form_filled.png", "rb") as f:
+                st.image(f.read(), caption=mtime_caption("debug_form_filled.png", "Login Form Filled"))
         with col2:
-            st.image("debug_dropdown_opened.png", caption="Dropdown Opened")
-            st.image("debug_after_submit.png", caption="After Login Submit")
-    except:
+            with open("debug_dropdown_opened.png", "rb") as f:
+                st.image(f.read(), caption=mtime_caption("debug_dropdown_opened.png", "Dropdown Opened"))
+            with open("debug_after_submit.png", "rb") as f:
+                st.image(f.read(), caption=mtime_caption("debug_after_submit.png", "After Login Submit"))
+    except FileNotFoundError:
         st.info("Screenshots not available yet - run the diagnostic first")
