@@ -85,8 +85,20 @@ def test_login_sequence(page, status_placeholder):
             ).first
             sign_in_candidate.wait_for(state="visible", timeout=10000)
             status_placeholder.success("✅ Sign in / Login link found")
-            sign_in_candidate.click()
-            page.screenshot(path="debug_sign_in_clicked.png")
+            target_page = page
+            # Try popup/new tab first; fall back to same tab navigation
+            try:
+                with page.expect_popup() as popup_info:
+                    sign_in_candidate.click()
+                target_page = popup_info.value
+                status_placeholder.info("Opened login in a new window")
+            except Exception:
+                sign_in_candidate.click()
+                try:
+                    page.wait_for_load_state("domcontentloaded", timeout=10000)
+                except:
+                    pass
+            target_page.screenshot(path="debug_sign_in_clicked.png")
         except PlaywrightTimeoutError:
             status_placeholder.error("❌ Sign in / Login link not found - trying navbar fallback")
             # Fallback to previous navbar selectors
@@ -98,6 +110,7 @@ def test_login_sequence(page, status_placeholder):
                 page.screenshot(path="debug_dropdown_opened.png")
                 sign_in_link = page.wait_for_selector(SIGN_IN_LINK_SELECTOR, state="visible", timeout=8000)
                 sign_in_link.click()
+                target_page = page
                 page.screenshot(path="debug_sign_in_clicked_navbar.png")
             except PlaywrightTimeoutError:
                 status_placeholder.error("❌ Navbar fallback failed - page structure likely changed")
@@ -111,44 +124,74 @@ def test_login_sequence(page, status_placeholder):
         SUBMIT_BUTTON_SELECTOR = "#next"
         
         status_placeholder.info("4. Filling login form...")
-        
+        # If login form is inside an iframe, switch to it
+        target_context = None
         try:
-            email_field = page.wait_for_selector(EMAIL_SELECTOR, state="visible", timeout=20000)
-            password_field = page.wait_for_selector(PASSWORD_SELECTOR, state="visible", timeout=15000)
-            submit_button = page.wait_for_selector(SUBMIT_BUTTON_SELECTOR, state="visible", timeout=15000)
-            
-            status_placeholder.success("✅ All login form elements found")
-            
-            # Fill credentials
+            for f in target_page.frames:
+                if (f.url and ("login" in f.url.lower() or "b2clogin" in f.url.lower())):
+                    target_context = f
+                    break
+        except Exception:
+            target_context = None
+        if target_context:
+            status_placeholder.info("Detected login iframe; interacting inside frame")
+        else:
+            target_context = target_page
+        try:
+            email_field = target_context.wait_for_selector(EMAIL_SELECTOR, state="visible", timeout=20000)
+            # Some flows show password after clicking Next; try both orders
+            password_field = None
+            try:
+                password_field = target_context.wait_for_selector(PASSWORD_SELECTOR, state="visible", timeout=8000)
+            except PlaywrightTimeoutError:
+                pass
+            submit_button = target_context.wait_for_selector(SUBMIT_BUTTON_SELECTOR, state="visible", timeout=15000)
+            status_placeholder.success("✅ Login form elements located")
+            # Fill credentials with verification and JS fallback
             email_field.fill(USERNAME)
-            password_field.fill(PASSWORD)
-            
-            page.screenshot(path="debug_form_filled.png")
-            status_placeholder.success("✅ Form filled with credentials")
+            try:
+                actual_email = email_field.input_value(timeout=2000)
+            except Exception:
+                actual_email = ""
+            if actual_email.strip() != USERNAME:
+                target_context.eval_on_selector(EMAIL_SELECTOR, "(el, val) => { el.value = val; el.dispatchEvent(new Event('input', { bubbles: true })); }", USERNAME)
+            if password_field:
+                password_field.fill(PASSWORD)
+                try:
+                    actual_pw = password_field.input_value(timeout=2000)
+                except Exception:
+                    actual_pw = ""
+                if actual_pw.strip() == "":
+                    target_context.eval_on_selector(PASSWORD_SELECTOR, "(el, val) => { el.value = val; el.dispatchEvent(new Event('input', { bubbles: true })); }", PASSWORD)
+            target_page.screenshot(path="debug_form_filled.png")
+            status_placeholder.success("✅ Credentials filled and verified")
             
         except PlaywrightTimeoutError as e:
             status_placeholder.error(f"❌ Login form elements not found: {e}")
             # Check if alternative field IDs exist
             try:
-                alt_email = page.locator('input[name="email"], input[name="username"], input[type="email"]').first
-                alt_password = page.locator('input[type="password"]').first
+                alt_email = target_context.locator('input[name="email"], input[name="username"], input[type="email"]').first
+                alt_password = target_context.locator('input[type="password"]').first
                 if alt_email and alt_password and alt_email.is_visible(timeout=3000) and alt_password.is_visible(timeout=3000):
                     alt_email.fill(USERNAME)
                     alt_password.fill(PASSWORD)
-                    page.screenshot(path="debug_form_filled_alt.png")
+                    target_page.screenshot(path="debug_form_filled_alt.png")
                     status_placeholder.success("✅ Filled alternative login fields")
                 else:
-                    current_url = page.url
+                    current_url = target_page.url
                     status_placeholder.info(f"Current URL: {current_url}")
                     return False
             except:
-                current_url = page.url
+                current_url = target_page.url
                 status_placeholder.info(f"Current URL: {current_url}")
                 return False
         
         # Step 5: Submit form
         status_placeholder.info("5. Submitting login form...")
-        page.click(SUBMIT_BUTTON_SELECTOR)
+        try:
+            target_context.click(SUBMIT_BUTTON_SELECTOR)
+        except Exception:
+            target_page.click(SUBMIT_BUTTON_SELECTOR)
         
         # Wait for redirect and check result
         status_placeholder.info("6. Waiting for login response...")
