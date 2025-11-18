@@ -3,7 +3,7 @@ headless = true
 enableCORS = false
 port = 8501
 
-[server]
+#[server]
 # Command to run before the main command (streamlit run ...)
 # This ensures Playwright's browsers are downloaded/setup after
 # the system packages (from packages.txt) are installed.
