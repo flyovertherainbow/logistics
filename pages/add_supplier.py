@@ -7,8 +7,8 @@ from fuzzywuzzy import fuzz
 SUPABASE_TABLE = 'suppliers'
 FUZZY_MATCH_THRESHOLD = 85 # Similarity percentage (0-100)
 # Configure this in .streamlit/secrets.toml
-# supabase_url = "YOUR_SUPABASE_URL"
-# supabase_key = "YOUR_SUPABASE_ANON_KEY"
+# supabase_url = "https://efrrkyperrzqirjnuqxt.supabase.co"
+# supabase_key = "sb_publishable_9bbv61MeFOakyKun_SNkSQ_j9cgkWqh"
 
 @st.cache_resource
 def init_connection():
