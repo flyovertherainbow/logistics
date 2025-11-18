@@ -2,6 +2,6 @@ streamlit
 openpyxl
 playwright>=1.40.0
 pandas>=1.3.0
-supabase
-fuzzywuzzy
+supabase-py
+fuzzywuzzy[speedup]
 python-levenshtein
