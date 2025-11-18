@@ -1,137 +1,205 @@
-import streamlit as st
-import pandas as pd
-from supabase import create_client
+# supabase_url = ""
+# supabase_key = ""
+
+import logging
+import re
+from supabase import create_client, Client
+# IMPORTANT: This script requires the fuzzywuzzy library for similarity checks.
+# Install with: pip install fuzzywuzzy[speedup]
 from fuzzywuzzy import fuzz
 
 # --- Configuration ---
-SUPABASE_TABLE = 'suppliers'
-FUZZY_MATCH_THRESHOLD = 85 # Similarity percentage (0-100)
-# Configure this in .streamlit/secrets.toml
-# supabase_url = "https://efrrkyperrzqirjnuqxt.supabase.co"
-# supabase_key = "sb_publishable_9bbv61MeFOakyKun_SNkSQ_j9cgkWqh"
+# Your Supabase client initialization should be here (assumed to be available)
+# Example:
+SUPABASE_URL = "https://efrrkyperrzqirjnuqxt.supabase.co"
+SUPABASE_KEY = "sb_publishable_9bbv61MeFOakyKun_SNkSQ_j9cgkWqh"
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-@st.cache_resource
-def init_connection():
-    """Initializes the Supabase client."""
+# Use your new table name
+SUPABASE_TABLE = 'companies'
+logging.basicConfig(level=logging.INFO)
+
+def clean_name(name: str) -> str:
+    """
+    Normalizes a company name for comparison.
+    Converts to lowercase, removes leading/trailing whitespace, and removes common 
+    legal suffixes and punctuation to facilitate better matching of similar names.
+    """
+    if not isinstance(name, str):
+        return ""
+    
+    # Convert to lowercase and strip whitespace
+    cleaned = name.lower().strip()
+    
+    # Optionally remove common suffixes (e.g., corp, llc, inc, ltd)
+    # This is a simple way to deal with 'Acme Corp' vs 'Acme'
+    suffixes = [r'\s+corp\s*$', r'\s+ltd\s*$', r'\s+inc\s*$', r'\s+llc\s*$', r'\s+co\s*$', r'\s+s\.a\.\s*$']
+    for suffix in suffixes:
+        cleaned = re.sub(suffix, '', cleaned, flags=re.IGNORECASE)
+    
+    # Remove all non-alphanumeric characters (keeps spaces)
+    cleaned = re.sub(r'[^\w\s]', '', cleaned)
+    
+    return cleaned.strip()
+
+def get_unique_new_companies(supabase: Client, new_suppliers: list) -> tuple[list, list]:
+    """
+    Fetches existing company names and compares them against the new supplier list 
+    using fuzzy matching (85% similarity threshold) to find truly new companies.
+    
+    Args:
+        supabase: The initialized Supabase client object.
+        new_suppliers: A list of supplier names (strings) to check.
+        
+    Returns:
+        A tuple: (list of original company names to insert, list of skipped company names with reason).
+    """
+    logging.info("Fetching existing company names for de-duplication and fuzzy matching.")
+    
+    # 1. Fetch and process existing data
+    existing_companies = []
     try:
-        url = st.secrets["supabase_url"]
-        key = st.secrets["supabase_key"]
-        return create_client(url, key)
+        # Fetch only the company_name column
+        response = supabase.table(SUPABASE_TABLE).select("company_name").execute()
+        if response.data:
+            for record in response.data:
+                original_name = record.get("company_name", "")
+                if original_name:
+                    existing_companies.append({
+                        "original": original_name,
+                        "cleaned": clean_name(original_name)
+                    })
+        
+        logging.info(f"Found {len(existing_companies)} companies for fuzzy comparison in the database.")
+
     except Exception as e:
-        st.error("🚨 Configuration Error: Supabase credentials not found in secrets.toml.")
+        logging.error(f"Error fetching existing companies for de-duplication: {e}")
+        # If fetch fails, bypass similarity check and rely on DB conflict resolution
+        return new_suppliers, []
+
+    # 2. Filter the new supplier list
+    companies_to_insert = []
+    companies_skipped_info = []
+    
+    # Set to track cleaned names *in the current batch* to prevent internal batch duplicates
+    current_batch_cleaned_names = set() 
+    
+    SIMILARITY_THRESHOLD = 85
+
+    for original_name in new_suppliers:
+        cleaned_new_name = clean_name(original_name)
+        
+        if not cleaned_new_name:
+            continue
+
+        # Check against internal batch duplicates first
+        if cleaned_new_name in current_batch_cleaned_names:
+            logging.debug(f"Skipping '{original_name}' (internal duplicate in this batch).")
+            continue
+        
+        # Perform Fuzzy Matching against all existing names
+        best_match_name = None
+        max_ratio = 0
+        
+        for existing_company in existing_companies:
+            # Use fuzz.ratio on the cleaned strings for best results
+            ratio = fuzz.ratio(cleaned_new_name, existing_company["cleaned"])
+            if ratio > max_ratio:
+                max_ratio = ratio
+                best_match_name = existing_company["original"]
+                
+                # Optimization: if we hit 100%, we can stop searching this name
+                if max_ratio == 100:
+                    break
+        
+        if max_ratio >= SIMILARITY_THRESHOLD:
+            # Skip due to similarity threshold
+            companies_skipped_info.append(f"'{original_name}' (Similarity: {max_ratio}%, matched with '{best_match_name}')")
+            current_batch_cleaned_names.add(cleaned_new_name)
+        else:
+            # New company to insert
+            companies_to_insert.append(original_name)
+            current_batch_cleaned_names.add(cleaned_new_name)
+
+    logging.info(f"Filtered to {len(companies_to_insert)} truly unique companies after fuzzy matching.")
+    return companies_to_insert, companies_skipped_info
+
+
+def upload_new_companies(supabase: Client, unique_suppliers: list):
+    """
+    Prepares and uploads new unique company names to the 'companies' table,
+    setting the 'company_cat' field to '1' for all entries, and handling similarity.
+    
+    Args:
+        supabase: The initialized Supabase client object.
+        unique_suppliers: A list of supplier names (strings) to insert.
+    """
+    
+    # --- NEW STEP: Pre-filter the list using similarity logic ---
+    companies_to_insert, companies_skipped_info = get_unique_new_companies(supabase, unique_suppliers)
+    
+    # 1. Prepare the data for insertion
+    data_to_insert = []
+    
+    for name in companies_to_insert:
+        data_to_insert.append({
+            "company_name": name,      # Inserts the supplier name (original string)
+            "company_cat": 1           # Inserts the digit 1 as requested
+        })
+
+    if not data_to_insert:
+        logging.info("No unique companies to insert after cleaning and filtering.")
+        
+        # 3. Provide user warning even if only filtering happened
+        if companies_skipped_info:
+            logging.warning("-" * 50)
+            logging.warning("WARNING: The following companies were skipped due to high similarity (>= 85%) or being exact matches with existing records:")
+            for skip_message in companies_skipped_info:
+                logging.warning(f"  - {skip_message}")
+            logging.warning("-" * 50)
+
+        return
+
+    logging.info(f"Attempting to insert {len(data_to_insert)} records into '{SUPABASE_TABLE}'...")
+
+    # Initialize inserted_records to ensure it exists for the final check
+    inserted_records = None 
+    
+    try:
+        # 2. Execute the insertion
+        response = supabase.table(SUPABASE_TABLE) \
+            .insert(data_to_insert) \
+            .on_conflict('company_name') \
+            .execute()
+        
+        inserted_count = len(response.data) if response.data else 0
+        inserted_records = response.data
+
+        logging.info(f"Successfully inserted {inserted_count} new companies.")
+        
+    except Exception as e:
+        logging.error(f"An error occurred during Supabase insertion: {e}")
         return None
 
-supabase = init_connection()
-
-@st.cache_data(show_spinner="Fetching existing suppliers...")
-def fetch_existing_suppliers():
-    """Fetches all existing supplier names from Supabase."""
-    if not supabase: return []
-    try:
-        # Fetch only the supplier_name column
-        response = supabase.table(SUPABASE_TABLE).select("supplier_name").execute()
-        return {d['supplier_name'].upper(): d['supplier_name'] for d in response.data}
-    except Exception as e:
-        st.error(f"❌ Database Error: Could not fetch existing suppliers. Check table name: {e}")
-        return {}
-
-def find_fuzzy_match(new_supplier_name, existing_supplier_map, threshold):
-    """Checks for exact and fuzzy matches."""
-    new_supplier_upper = new_supplier_name.upper()
-    
-    for existing_upper, existing_original in existing_supplier_map.items():
-        # 1. Check for EXACT match (case-insensitive)
-        if new_supplier_upper == existing_upper:
-            return existing_original, 100 # Exact match, score 100
+    # 3. Provide user warning for skipped companies (after successful insertion)
+    if companies_skipped_info:
+        logging.warning("-" * 50)
+        logging.warning("WARNING: The following companies were skipped due to high similarity (>= 85%) or being exact matches with existing records:")
+        for skip_message in companies_skipped_info:
+            logging.warning(f"  - {skip_message}")
+        logging.warning("-" * 50)
         
-        # 2. Check for FUZZY match
-        similarity = fuzz.token_sort_ratio(new_supplier_upper, existing_upper)
-        if similarity >= threshold:
-            return existing_original, similarity
-            
-    return None, 0
+    return inserted_records
 
-# --- Main Streamlit App ---
+# --- Example Usage (Requires actual Supabase setup to run) ---
+# Example list of unique suppliers
+# unique_suppliers_list = ["Acme Corp.", "Beta Solutions LLC", "Acme", "New Supplier A", "Acme Corporation"] 
+# 
+# If "Acme Corp" exists in DB:
+# - "Acme Corp." will be skipped (Exact match on cleaned name)
+# - "Acme" will be skipped (High similarity match)
+# - "Acme Corporation" will be skipped (High similarity match)
 
-st.title("Excel to Supabase Supplier Uploader")
-st.markdown(f"**Similarity Threshold:** {FUZZY_MATCH_THRESHOLD}%")
-
-if supabase is None:
-    st.stop()
-
-uploaded_file = st.file_uploader(
-    "Drag and drop your Excel file here (.xlsx or .xls)",
-    type=["xlsx", "xls"]
-)
-
-if uploaded_file is not None:
-    st.success("File uploaded successfully! Analyzing data...")
-
-    try:
-        df = pd.read_excel(uploaded_file)
-        
-        if 'Supplier' not in df.columns:
-            st.error("❌ Error: The file must contain a column named **'Supplier'**.")
-            st.stop()
-        
-        # Clean and get unique list from the uploaded file
-        suppliers_series = df['Supplier'].dropna().astype(str).str.strip()
-        unique_suppliers_from_file = suppliers_series.unique().tolist()
-        
-        # Fetch current list from Supabase
-        existing_supplier_map = fetch_existing_suppliers() # Map of {UPPERCASE: Original Name}
-
-        # Lists for separation
-        suppliers_to_insert = []
-        fuzzy_matches_found = []
-
-        # 1. Iterate and Check for Matches
-        for new_supplier in unique_suppliers_from_file:
-            
-            # Find any close or exact match in the database
-            matched_name, score = find_fuzzy_match(new_supplier, existing_supplier_map, FUZZY_MATCH_THRESHOLD)
-
-            if matched_name:
-                # If a match is found (exact or fuzzy), record it as a potential duplicate
-                match_type = "Exact Match (Case Insensitive)" if score == 100 else "Fuzzy Match"
-                fuzzy_matches_found.append({
-                    "Status": match_type,
-                    "New Name from File": new_supplier,
-                    "Matched DB Name": matched_name,
-                    "Similarity Score": f"{score}%"
-                })
-            else:
-                # If no close match is found, prepare it for insertion
-                suppliers_to_insert.append({"supplier_name": new_supplier})
-
-        st.subheader("Data Analysis Results")
-        
-        # 2. Display Warnings for Potential Duplicates
-        if fuzzy_matches_found:
-            st.warning(f"⚠️ **{len(fuzzy_matches_found)} entries skipped** due to similarity or exact match:")
-            st.dataframe(pd.DataFrame(fuzzy_matches_found), use_container_width=True)
-            st.info("These suppliers were **NOT** inserted. Please standardize the names and re-upload if necessary.")
-        
-        # 3. Handle Insertion of Truly New Suppliers
-        if suppliers_to_insert:
-            st.success(f"✅ **{len(suppliers_to_insert)} truly unique suppliers** ready for insertion.")
-            
-            if st.button(f"Insert {len(suppliers_to_insert)} New Suppliers into Supabase"):
-                
-                try:
-                    # Insertion logic uses ON CONFLICT for final safety check against concurrent inserts
-                    response = supabase.table(SUPABASE_TABLE).insert(suppliers_to_insert).on_conflict('supplier_name').execute()
-                    
-                    st.balloons()
-                    st.success(f"Successfully inserted {len(response.data)} new records.")
-
-                except Exception as db_err:
-                    st.error(f"❌ Database Insertion Error: {db_err}")
-        else:
-            if not fuzzy_matches_found:
-                 st.info("No new suppliers found in the file.")
-            st.stop() # Stop if there is nothing to insert.
-
-    except Exception as e:
-        st.error(f"❌ An unexpected error occurred during file processing: {e}")
-        st.caption("Ensure your file is a valid Excel format and the 'Supplier' column is present.")
+# You would call this function after initializing your 'supabase' client:
+# inserted_records = upload_new_companies(supabase, unique_suppliers_list)
+# print(inserted_records)
