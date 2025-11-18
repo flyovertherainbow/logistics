@@ -1,177 +1,137 @@
-SUPABASE_URL = "https://efrrkyperrzqirjnuqxt.supabase.co"
-SUPABASE_KEY = "sb_publishable_9bbv61MeFOakyKun_SNkSQ_j9cgkWqh"
-
-
 import streamlit as st
 import pandas as pd
-from supabase import create_client, Client
 import os
 import sys
-# Import the custom utility functions from your existing file
+
+# IMPORTANT: These imports rely on the Supabase client and the utility function 
+# being available globally or importable. Since the client setup is already 
+# in streamlit_app.py, we will duplicate the client setup here for standalone page functionality.
+# We also rely on the utility file:
+from supabase import create_client, Client
 from supabase_data_updater import upload_new_companies
 
-# --- Supabase Initialization (Placeholder for Configuration) ---
-# NOTE: This block is crucial.
+# --- Supabase Initialization (Copied from streamlit_app.py for page execution) ---
 try:
     SUPABASE_URL = os.environ.get("SUPABASE_URL", st.secrets.get("SUPABASE_URL"))
     SUPABASE_KEY = os.environ.get("SUPABASE_KEY", st.secrets.get("SUPABASE_KEY"))
     
     if not SUPABASE_URL or not SUPABASE_KEY:
-        st.error("Supabase credentials not found. Please set SUPABASE_URL and SUPABASE_KEY in your secrets.")
         supabase = None
+        st.error("Supabase credentials not found. Cannot connect to database.")
     else:
+        # Client initialization
         supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 except Exception as e:
-    st.error(f"Error initializing Supabase client. Error: {e}")
+    st.error(f"Error initializing Supabase client. Please check your network or configuration. Error: {e}")
     sys.exit()
 
-# --- Page Navigation Functions ---
+# --- Page Title and Introduction ---
+st.title("📦 Add Supplier Data")
+st.markdown("Use this page to upload a file containing new supplier names for de-duplication and insertion into the `companies` table.")
 
-def navigate_to(page_name):
-    """Function to change the current page in session state."""
-    st.session_state.page = page_name
-
-def show_home_page():
-    """
-    The main landing page showing a list of functions/features.
-    """
-    st.title("🏡 Logistics Management System")
-    st.markdown("Welcome back! Select a function below to manage your data.")
-    
-    st.subheader("Available Functions")
-    
-    # Use columns to present features cleanly
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.info("Function 1: Data Upload")
-        # This button is what the user clicks to see the drag-and-drop element
-        if st.button("➕ Add Supplier Data", key="add_supplier_btn", help="Upload a new Excel/CSV file to update the companies list."):
-            navigate_to("Add Supplier")
-
-    with col2:
-        st.info("Function 2: View Metrics")
-        if st.button("📊 View Dashboard", key="view_dashboard_btn", help="See key performance indicators and visualizations."):
-            navigate_to("Dashboard")
-
-    with col3:
-        st.info("Function 3: Future Feature")
-        st.button("⚙️ Configuration", disabled=True, help="Coming soon...")
-        
-    st.markdown("---")
-    st.write("Current Supabase Connection Status: **Ready**")
-
-def show_data_uploader_page(supabase: Client):
-    """
-    Displays the UI for file upload and database update logic (The 'Add Supplier' page).
-    """
-    st.title("📦 Add Supplier Data (Company Uploader)")
-    st.markdown("Upload your latest supplier list to check for new and unique companies before inserting them into the Supabase database.")
-    
-    if supabase is None:
-        st.error("Cannot access this feature. Supabase client failed to initialize.")
-        return
-
-    # 1. File Uploader Widget
-    # This is the drag-and-drop element the user expects to see
-    uploaded_file = st.file_uploader(
-        "Drag and drop your Excel (.xlsx) or CSV (.csv) file here", 
-        type=["xlsx", "csv"],
-        help="The file must contain a column with the company/supplier names."
-    )
-
-    # 2. Main Processing Logic
-    if uploaded_file is not None:
-        st.success(f"File uploaded successfully: **{uploaded_file.name}**")
-        
-        # Check file type and read it using pandas
-        try:
-            if uploaded_file.name.endswith('.csv'):
-                # Added robust separator detection for CSV
-                df = pd.read_csv(uploaded_file, sep=None, engine='python')
-            else: # Assumes Excel (.xlsx)
-                df = pd.read_excel(uploaded_file)
-
-            # Display the first few rows for confirmation
-            st.subheader("Data Preview")
-            st.dataframe(df.head())
-            
-            # --- Crucial Step: Identify the Company Name Column ---
-            st.info("Please select the column that contains the unique Company/Supplier Names.")
-            
-            column_options = df.columns.tolist()
-            company_column = st.selectbox(
-                "Select Company Name Column",
-                options=column_options
-            )
-
-            # Check if processing button is pressed AND a valid column is selected
-            if company_column and st.button("Process & Upload New Companies", type="primary"):
-                with st.spinner("Processing file, de-duplicating, and uploading to Supabase..."):
-                    # Extract the list of unique supplier names from the selected column
-                    supplier_list = df[company_column].dropna().unique().tolist()
-                    
-                    # Call the core logic function from supabase_data_updater.py
-                    inserted_records = upload_new_companies(supabase, supplier_list)
-
-                # --- Display Results ---
-                if inserted_records is not None:
-                    if inserted_records:
-                        st.balloons()
-                        st.success(f"✅ Successfully inserted **{len(inserted_records)}** new unique companies into the database!")
-                        # Display the newly inserted records
-                        st.subheader("Newly Inserted Records")
-                        st.dataframe(pd.DataFrame(inserted_records))
-                    else:
-                        st.info("👍 Processing complete. No new unique companies were inserted after similarity checks (or all were already present).")
-                else:
-                    st.error("❌ Failed to process or upload data. Check console logs for connection or database errors.")
-                    
-                st.warning("Details on skipped records (due to similarity) are available in the application logs (console).")
+if supabase is None:
+    st.warning("Database features are disabled due to missing Supabase credentials.")
 
 
-        except Exception as e:
-            st.error(f"An error occurred while reading or processing the file. Error: {e}")
+# =========================================================================
+# STEP 1: Display Input Field, Handle Upload, and Show DataFrame
+# =========================================================================
+st.subheader("Step 1: Upload File and Select Company Column")
 
-    else:
-        st.info("Awaiting file upload...")
-
-def show_dashboard_page():
-    """
-    Placeholder for another function/page.
-    """
-    st.title("📊 Logistics Dashboard (Placeholder)")
-    st.markdown("This section will eventually show visualizations or metrics related to your logistics data.")
-    st.image("https://placehold.co/800x400/94A3B8/FFFFFF?text=Data+Visualization+Here", caption="A placeholder chart") 
-    st.write("Current companies count: [Fetch count from Supabase here]")
-
-# --- Main App Execution ---
-
-# 1. Set Page Configuration
-st.set_page_config(
-    page_title="Supabase Logistics App",
-    layout="wide",
-    initial_sidebar_state="auto",
+# 1. File Uploader Widget (The drag-and-drop element)
+uploaded_file = st.file_uploader(
+    "Drag and drop your Excel (.xlsx) or CSV (.csv) file here", 
+    type=["xlsx", "csv"],
+    help="The file must contain a column with the company/supplier names."
 )
 
-# 2. Initialize Session State for Navigation
-if "page" not in st.session_state:
-    st.session_state.page = "Home"
+if uploaded_file is None:
+    st.info("Awaiting file upload...")
+    st.stop() # Stop execution if no file is present
 
-# 3. Sidebar (for returning home)
-st.sidebar.title("Navigation")
-if st.session_state.page != "Home":
-    if st.sidebar.button("🏠 Back to Home", key="home_btn"):
-        navigate_to("Home")
+# File is present, proceed to reading and displaying
+st.success(f"File uploaded successfully: **{uploaded_file.name}**")
+
+try:
+    if uploaded_file.name.endswith('.csv'):
+        # Read CSV with robust separator detection
+        df = pd.read_csv(uploaded_file, sep=None, engine='python')
+    else: # Assumes Excel (.xlsx)
+        df = pd.read_excel(uploaded_file)
+
+    st.subheader("Data Preview (First 5 Rows)")
+    st.dataframe(df.head())
+    
+    # Select the company name column
+    st.info("Please select the column that contains the unique Company/Supplier Names.")
+    column_options = df.columns.tolist()
+    company_column = st.selectbox(
+        "Select Company Name Column",
+        options=column_options
+    )
+    
+except Exception as e:
+    st.error(f"An error occurred while reading or processing the file. Check if it's a valid Excel/CSV structure. Error: {e}")
+    st.stop()
+
+
+# =========================================================================
+# STEP 2: Test Supabase Connection and Read Data
+# =========================================================================
+st.markdown("---")
+st.subheader("Step 2: Database Connection Test")
+
+if supabase:
+    if st.button("Test Database Connection & Read Sample Data"):
+        with st.spinner("Connecting to Supabase..."):
+            try:
+                # Read 5 records from the 'companies' table for a connection test
+                response = supabase.table('companies').select("company_name, company_cat").limit(5).execute()
+                
+                if response.data:
+                    st.success("✅ Supabase connection successful!")
+                    st.info(f"Successfully fetched a sample of {len(response.data)} existing companies:")
+                    st.dataframe(pd.DataFrame(response.data))
+                else:
+                    st.warning("⚠️ Connected to Supabase, but no records were found in the 'companies' table.")
+            except Exception as e:
+                st.error(f"❌ Connection or read failed. Check permissions/table name. Error: {e}")
+                st.stop()
 else:
-    # Give a brief context on the home page
-    st.sidebar.markdown("Use the buttons below to switch features.")
+    st.warning("Database test skipped: Supabase client is not initialized.")
 
 
-# 4. Conditional Page Rendering
-if st.session_state.page == "Home":
-    show_home_page()
-elif st.session_state.page == "Add Supplier":
-    show_data_uploader_page(supabase)
-elif st.session_state.page == "Dashboard":
-    show_dashboard_page()
+# =========================================================================
+# STEP 3: Save Data into the Database
+# =========================================================================
+st.markdown("---")
+st.subheader("Step 3: Process and Upload Data")
+
+if supabase and company_column:
+    if st.button("🚀 Process & Upload New Companies to Database", type="primary"):
+        with st.spinner("Processing file, de-duplicating, and uploading..."):
+            
+            # Extract the list of unique supplier names from the selected column
+            supplier_list = df[company_column].dropna().unique().tolist()
+            
+            # Call the core logic function from supabase_data_updater.py
+            inserted_records = upload_new_companies(supabase, supplier_list)
+
+        # --- Display Final Results ---
+        if inserted_records is not None:
+            if inserted_records:
+                st.balloons()
+                st.success(f"✅ Successfully inserted **{len(inserted_records)}** new unique companies into the database!")
+                st.subheader("Newly Inserted Records")
+                st.dataframe(pd.DataFrame(inserted_records))
+            else:
+                st.info("👍 Processing complete. No new unique companies were inserted after similarity checks (or all were already present).")
+        else:
+            st.error("❌ Failed to process or upload data. Check the application logs for connection or database errors.")
+            
+        st.warning("If the number of inserted records is less than expected, it's likely due to fuzzy matching (>= 85% similarity) with existing companies. Check the console logs for skipped records.")
+
+elif not supabase:
+    st.error("Cannot upload data as Supabase connection failed in Step 2.")
+elif not company_column:
+    st.warning("Please select the correct Company Name Column in Step 1 before proceeding.")
