@@ -1,6 +1,3 @@
-# supabase_url = ""
-# supabase_key = ""
-
 import logging
 import re
 from supabase import create_client, Client
