@@ -1,202 +1,177 @@
-import logging
-import re
-from supabase import create_client, Client
-# IMPORTANT: This script requires the fuzzywuzzy library for similarity checks.
-# Install with: pip install fuzzywuzzy[speedup]
-from fuzzywuzzy import fuzz
-
-# --- Configuration ---
-# Your Supabase client initialization should be here (assumed to be available)
-# Example:
 SUPABASE_URL = "https://efrrkyperrzqirjnuqxt.supabase.co"
 SUPABASE_KEY = "sb_publishable_9bbv61MeFOakyKun_SNkSQ_j9cgkWqh"
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# Use your new table name
-SUPABASE_TABLE = 'companies'
-logging.basicConfig(level=logging.INFO)
 
-def clean_name(name: str) -> str:
+import streamlit as st
+import pandas as pd
+from supabase import create_client, Client
+import os
+import sys
+# Import the custom utility functions from your existing file
+from supabase_data_updater import upload_new_companies
+
+# --- Supabase Initialization (Placeholder for Configuration) ---
+# NOTE: This block is crucial.
+try:
+    SUPABASE_URL = os.environ.get("SUPABASE_URL", st.secrets.get("SUPABASE_URL"))
+    SUPABASE_KEY = os.environ.get("SUPABASE_KEY", st.secrets.get("SUPABASE_KEY"))
+    
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        st.error("Supabase credentials not found. Please set SUPABASE_URL and SUPABASE_KEY in your secrets.")
+        supabase = None
+    else:
+        supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+except Exception as e:
+    st.error(f"Error initializing Supabase client. Error: {e}")
+    sys.exit()
+
+# --- Page Navigation Functions ---
+
+def navigate_to(page_name):
+    """Function to change the current page in session state."""
+    st.session_state.page = page_name
+
+def show_home_page():
     """
-    Normalizes a company name for comparison.
-    Converts to lowercase, removes leading/trailing whitespace, and removes common 
-    legal suffixes and punctuation to facilitate better matching of similar names.
+    The main landing page showing a list of functions/features.
     """
-    if not isinstance(name, str):
-        return ""
+    st.title("🏡 Logistics Management System")
+    st.markdown("Welcome back! Select a function below to manage your data.")
     
-    # Convert to lowercase and strip whitespace
-    cleaned = name.lower().strip()
+    st.subheader("Available Functions")
     
-    # Optionally remove common suffixes (e.g., corp, llc, inc, ltd)
-    # This is a simple way to deal with 'Acme Corp' vs 'Acme'
-    suffixes = [r'\s+corp\s*$', r'\s+ltd\s*$', r'\s+inc\s*$', r'\s+llc\s*$', r'\s+co\s*$', r'\s+s\.a\.\s*$']
-    for suffix in suffixes:
-        cleaned = re.sub(suffix, '', cleaned, flags=re.IGNORECASE)
-    
-    # Remove all non-alphanumeric characters (keeps spaces)
-    cleaned = re.sub(r'[^\w\s]', '', cleaned)
-    
-    return cleaned.strip()
+    # Use columns to present features cleanly
+    col1, col2, col3 = st.columns(3)
 
-def get_unique_new_companies(supabase: Client, new_suppliers: list) -> tuple[list, list]:
+    with col1:
+        st.info("Function 1: Data Upload")
+        # This button is what the user clicks to see the drag-and-drop element
+        if st.button("➕ Add Supplier Data", key="add_supplier_btn", help="Upload a new Excel/CSV file to update the companies list."):
+            navigate_to("Add Supplier")
+
+    with col2:
+        st.info("Function 2: View Metrics")
+        if st.button("📊 View Dashboard", key="view_dashboard_btn", help="See key performance indicators and visualizations."):
+            navigate_to("Dashboard")
+
+    with col3:
+        st.info("Function 3: Future Feature")
+        st.button("⚙️ Configuration", disabled=True, help="Coming soon...")
+        
+    st.markdown("---")
+    st.write("Current Supabase Connection Status: **Ready**")
+
+def show_data_uploader_page(supabase: Client):
     """
-    Fetches existing company names and compares them against the new supplier list 
-    using fuzzy matching (85% similarity threshold) to find truly new companies.
-    
-    Args:
-        supabase: The initialized Supabase client object.
-        new_suppliers: A list of supplier names (strings) to check.
-        
-    Returns:
-        A tuple: (list of original company names to insert, list of skipped company names with reason).
+    Displays the UI for file upload and database update logic (The 'Add Supplier' page).
     """
-    logging.info("Fetching existing company names for de-duplication and fuzzy matching.")
+    st.title("📦 Add Supplier Data (Company Uploader)")
+    st.markdown("Upload your latest supplier list to check for new and unique companies before inserting them into the Supabase database.")
     
-    # 1. Fetch and process existing data
-    existing_companies = []
-    try:
-        # Fetch only the company_name column
-        response = supabase.table(SUPABASE_TABLE).select("company_name").execute()
-        if response.data:
-            for record in response.data:
-                original_name = record.get("company_name", "")
-                if original_name:
-                    existing_companies.append({
-                        "original": original_name,
-                        "cleaned": clean_name(original_name)
-                    })
-        
-        logging.info(f"Found {len(existing_companies)} companies for fuzzy comparison in the database.")
-
-    except Exception as e:
-        logging.error(f"Error fetching existing companies for de-duplication: {e}")
-        # If fetch fails, bypass similarity check and rely on DB conflict resolution
-        return new_suppliers, []
-
-    # 2. Filter the new supplier list
-    companies_to_insert = []
-    companies_skipped_info = []
-    
-    # Set to track cleaned names *in the current batch* to prevent internal batch duplicates
-    current_batch_cleaned_names = set() 
-    
-    SIMILARITY_THRESHOLD = 85
-
-    for original_name in new_suppliers:
-        cleaned_new_name = clean_name(original_name)
-        
-        if not cleaned_new_name:
-            continue
-
-        # Check against internal batch duplicates first
-        if cleaned_new_name in current_batch_cleaned_names:
-            logging.debug(f"Skipping '{original_name}' (internal duplicate in this batch).")
-            continue
-        
-        # Perform Fuzzy Matching against all existing names
-        best_match_name = None
-        max_ratio = 0
-        
-        for existing_company in existing_companies:
-            # Use fuzz.ratio on the cleaned strings for best results
-            ratio = fuzz.ratio(cleaned_new_name, existing_company["cleaned"])
-            if ratio > max_ratio:
-                max_ratio = ratio
-                best_match_name = existing_company["original"]
-                
-                # Optimization: if we hit 100%, we can stop searching this name
-                if max_ratio == 100:
-                    break
-        
-        if max_ratio >= SIMILARITY_THRESHOLD:
-            # Skip due to similarity threshold
-            companies_skipped_info.append(f"'{original_name}' (Similarity: {max_ratio}%, matched with '{best_match_name}')")
-            current_batch_cleaned_names.add(cleaned_new_name)
-        else:
-            # New company to insert
-            companies_to_insert.append(original_name)
-            current_batch_cleaned_names.add(cleaned_new_name)
-
-    logging.info(f"Filtered to {len(companies_to_insert)} truly unique companies after fuzzy matching.")
-    return companies_to_insert, companies_skipped_info
-
-
-def upload_new_companies(supabase: Client, unique_suppliers: list):
-    """
-    Prepares and uploads new unique company names to the 'companies' table,
-    setting the 'company_cat' field to '1' for all entries, and handling similarity.
-    
-    Args:
-        supabase: The initialized Supabase client object.
-        unique_suppliers: A list of supplier names (strings) to insert.
-    """
-    
-    # --- NEW STEP: Pre-filter the list using similarity logic ---
-    companies_to_insert, companies_skipped_info = get_unique_new_companies(supabase, unique_suppliers)
-    
-    # 1. Prepare the data for insertion
-    data_to_insert = []
-    
-    for name in companies_to_insert:
-        data_to_insert.append({
-            "company_name": name,      # Inserts the supplier name (original string)
-            "company_cat": 1           # Inserts the digit 1 as requested
-        })
-
-    if not data_to_insert:
-        logging.info("No unique companies to insert after cleaning and filtering.")
-        
-        # 3. Provide user warning even if only filtering happened
-        if companies_skipped_info:
-            logging.warning("-" * 50)
-            logging.warning("WARNING: The following companies were skipped due to high similarity (>= 85%) or being exact matches with existing records:")
-            for skip_message in companies_skipped_info:
-                logging.warning(f"  - {skip_message}")
-            logging.warning("-" * 50)
-
+    if supabase is None:
+        st.error("Cannot access this feature. Supabase client failed to initialize.")
         return
 
-    logging.info(f"Attempting to insert {len(data_to_insert)} records into '{SUPABASE_TABLE}'...")
+    # 1. File Uploader Widget
+    # This is the drag-and-drop element the user expects to see
+    uploaded_file = st.file_uploader(
+        "Drag and drop your Excel (.xlsx) or CSV (.csv) file here", 
+        type=["xlsx", "csv"],
+        help="The file must contain a column with the company/supplier names."
+    )
 
-    # Initialize inserted_records to ensure it exists for the final check
-    inserted_records = None 
-    
-    try:
-        # 2. Execute the insertion
-        response = supabase.table(SUPABASE_TABLE) \
-            .insert(data_to_insert) \
-            .on_conflict('company_name') \
-            .execute()
+    # 2. Main Processing Logic
+    if uploaded_file is not None:
+        st.success(f"File uploaded successfully: **{uploaded_file.name}**")
         
-        inserted_count = len(response.data) if response.data else 0
-        inserted_records = response.data
+        # Check file type and read it using pandas
+        try:
+            if uploaded_file.name.endswith('.csv'):
+                # Added robust separator detection for CSV
+                df = pd.read_csv(uploaded_file, sep=None, engine='python')
+            else: # Assumes Excel (.xlsx)
+                df = pd.read_excel(uploaded_file)
 
-        logging.info(f"Successfully inserted {inserted_count} new companies.")
-        
-    except Exception as e:
-        logging.error(f"An error occurred during Supabase insertion: {e}")
-        return None
+            # Display the first few rows for confirmation
+            st.subheader("Data Preview")
+            st.dataframe(df.head())
+            
+            # --- Crucial Step: Identify the Company Name Column ---
+            st.info("Please select the column that contains the unique Company/Supplier Names.")
+            
+            column_options = df.columns.tolist()
+            company_column = st.selectbox(
+                "Select Company Name Column",
+                options=column_options
+            )
 
-    # 3. Provide user warning for skipped companies (after successful insertion)
-    if companies_skipped_info:
-        logging.warning("-" * 50)
-        logging.warning("WARNING: The following companies were skipped due to high similarity (>= 85%) or being exact matches with existing records:")
-        for skip_message in companies_skipped_info:
-            logging.warning(f"  - {skip_message}")
-        logging.warning("-" * 50)
-        
-    return inserted_records
+            # Check if processing button is pressed AND a valid column is selected
+            if company_column and st.button("Process & Upload New Companies", type="primary"):
+                with st.spinner("Processing file, de-duplicating, and uploading to Supabase..."):
+                    # Extract the list of unique supplier names from the selected column
+                    supplier_list = df[company_column].dropna().unique().tolist()
+                    
+                    # Call the core logic function from supabase_data_updater.py
+                    inserted_records = upload_new_companies(supabase, supplier_list)
 
-# --- Example Usage (Requires actual Supabase setup to run) ---
-# Example list of unique suppliers
-# unique_suppliers_list = ["Acme Corp.", "Beta Solutions LLC", "Acme", "New Supplier A", "Acme Corporation"] 
-# 
-# If "Acme Corp" exists in DB:
-# - "Acme Corp." will be skipped (Exact match on cleaned name)
-# - "Acme" will be skipped (High similarity match)
-# - "Acme Corporation" will be skipped (High similarity match)
+                # --- Display Results ---
+                if inserted_records is not None:
+                    if inserted_records:
+                        st.balloons()
+                        st.success(f"✅ Successfully inserted **{len(inserted_records)}** new unique companies into the database!")
+                        # Display the newly inserted records
+                        st.subheader("Newly Inserted Records")
+                        st.dataframe(pd.DataFrame(inserted_records))
+                    else:
+                        st.info("👍 Processing complete. No new unique companies were inserted after similarity checks (or all were already present).")
+                else:
+                    st.error("❌ Failed to process or upload data. Check console logs for connection or database errors.")
+                    
+                st.warning("Details on skipped records (due to similarity) are available in the application logs (console).")
 
-# You would call this function after initializing your 'supabase' client:
-# inserted_records = upload_new_companies(supabase, unique_suppliers_list)
-# print(inserted_records)
+
+        except Exception as e:
+            st.error(f"An error occurred while reading or processing the file. Error: {e}")
+
+    else:
+        st.info("Awaiting file upload...")
+
+def show_dashboard_page():
+    """
+    Placeholder for another function/page.
+    """
+    st.title("📊 Logistics Dashboard (Placeholder)")
+    st.markdown("This section will eventually show visualizations or metrics related to your logistics data.")
+    st.image("https://placehold.co/800x400/94A3B8/FFFFFF?text=Data+Visualization+Here", caption="A placeholder chart") 
+    st.write("Current companies count: [Fetch count from Supabase here]")
+
+# --- Main App Execution ---
+
+# 1. Set Page Configuration
+st.set_page_config(
+    page_title="Supabase Logistics App",
+    layout="wide",
+    initial_sidebar_state="auto",
+)
+
+# 2. Initialize Session State for Navigation
+if "page" not in st.session_state:
+    st.session_state.page = "Home"
+
+# 3. Sidebar (for returning home)
+st.sidebar.title("Navigation")
+if st.session_state.page != "Home":
+    if st.sidebar.button("🏠 Back to Home", key="home_btn"):
+        navigate_to("Home")
+else:
+    # Give a brief context on the home page
+    st.sidebar.markdown("Use the buttons below to switch features.")
+
+
+# 4. Conditional Page Rendering
+if st.session_state.page == "Home":
+    show_home_page()
+elif st.session_state.page == "Add Supplier":
+    show_data_uploader_page(supabase)
+elif st.session_state.page == "Dashboard":
+    show_dashboard_page()
