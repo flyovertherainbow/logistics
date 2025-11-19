@@ -119,7 +119,7 @@ def get_unique_new_companies(supabase: Client, new_suppliers: list) -> tuple[lis
 def upload_new_companies(supabase: Client, unique_suppliers: list):
     """
     Prepares and uploads new unique company names to the 'companies' table,
-    setting the 'company_cat' field to '1' for all entries, and handling similarity.
+    setting the 'company_cat' field to '1' for all entries.
     
     Args:
         supabase: The initialized Supabase client object.
@@ -161,11 +161,10 @@ def upload_new_companies(supabase: Client, unique_suppliers: list):
     inserted_records = None 
     
     try:
-        # 2. Execute the insertion
-        # .on_conflict('company_name') prevents inserting companies that already exist
+        # 2. Execute the insertion using .upsert() for conflict resolution
+        # 'on_conflict' ensures that if a company_name already exists, it is not inserted again (effectively an insert-only upsert).
         response = supabase.table(SUPABASE_TABLE) \
-            .insert(data_to_insert) \
-            .on_conflict('company_name') \
+            .upsert(data_to_insert, on_conflict='company_name') \
             .execute()
         
         inserted_records = response.data
@@ -173,7 +172,8 @@ def upload_new_companies(supabase: Client, unique_suppliers: list):
         logging.info(f"Successfully inserted {len(inserted_records)} new companies.")
         
     except Exception as e:
-        logging.error(f"An error occurred during Supabase insertion: {e}")
+        # Log the error including the full traceback for better debugging
+        logging.error(f"An error occurred during Supabase insertion: {e}", exc_info=True)
         return None
 
     # 3. Provide user warning for skipped companies (after successful insertion)
