@@ -75,9 +75,23 @@ def find_header_and_process_data(uploaded_file):
     st.info(f"Using column: **{supplier_column_name}** for supplier list extraction.")
 
     # 5. Get the values, remove duplicates, and drop NaN/empty values
-    unique_suppliers = final_df[supplier_column_name].dropna().astype(str).str.strip().unique().tolist()
+    raw_unique_suppliers = final_df[supplier_column_name].dropna().astype(str).str.strip().unique().tolist()
     
-    return unique_suppliers
+    # --- NEW LOGIC: Exclude names containing "various" ---
+    suppliers_to_keep = []
+    suppliers_excluded_various = []
+    exclusion_keyword = "various"
+    
+    for name in raw_unique_suppliers:
+        if exclusion_keyword in name.lower():
+            suppliers_excluded_various.append(name)
+        else:
+            suppliers_to_keep.append(name)
+    
+    # Store excluded list in session state for displaying a warning outside this function
+    st.session_state['suppliers_excluded_various'] = suppliers_excluded_various
+    
+    return suppliers_to_keep # Return the filtered list
 
 # --- Main Page Execution ---
 
@@ -120,3 +134,8 @@ if unique_suppliers_list:
     # Store the unique list in session state so Step 2 can access it easily
     # when we add the button later.
     st.session_state['unique_suppliers_list'] = unique_suppliers_list
+    
+    # --- NEW WARNING LOGIC (Based on user request) ---
+    if 'suppliers_excluded_various' in st.session_state and st.session_state['suppliers_excluded_various']:
+        excluded = st.session_state['suppliers_excluded_various']
+        st.warning(f"⚠️ **{len(excluded)} Supplier(s) Excluded:** The following names were removed from the list because they contain the keyword 'various' (case-insensitive): \n\n" + ", ".join(excluded))
