@@ -4,6 +4,8 @@ import os
 import sys
 # New Imports for Supabase (Step 2)
 from supabase import create_client, Client 
+# NEW Import for Step 3: Importing the core update logic
+from supabase_data_updater import upload_new_companies
 
 # --- FIX: Add the project root directory to the Python path ---
 # This line is kept to ensure this page can easily be expanded later 
@@ -105,7 +107,7 @@ def find_header_and_process_data(uploaded_file):
     # 5. Get the values, remove duplicates, and drop NaN/empty values
     raw_unique_suppliers = final_df[supplier_column_name].dropna().astype(str).str.strip().unique().tolist()
     
-    # --- NEW LOGIC: Exclude names containing "various" ---
+    # --- LOGIC: Exclude names containing "various" ---
     suppliers_to_keep = []
     suppliers_excluded_various = []
     exclusion_keyword = "various"
@@ -149,6 +151,10 @@ st.success(f"File uploaded successfully: **{uploaded_file.name}**")
 # Process the data using the custom function
 unique_suppliers_list = find_header_and_process_data(uploaded_file)
 
+# Initialize Supabase client early for Step 2 and 3 access
+supabase = init_supabase_client()
+
+
 if unique_suppliers_list:
     st.markdown("---")
     st.subheader(f"✅ Extracted Supplier List (Total Unique: {len(unique_suppliers_list)})")
@@ -169,24 +175,19 @@ if unique_suppliers_list:
 
     
     # =========================================================================
-    # NEW: STEP 2: Test Supabase Connection and Read Data
+    # STEP 2: Test Supabase Connection and Read Data
     # =========================================================================
     
     st.markdown("---")
     st.subheader("2. Test Supabase Connection")
     
-    # Initialize the Supabase client (cached)
-    supabase = init_supabase_client()
-    
     if supabase is None:
         st.error("Cannot proceed. Please fix Supabase credentials in `.streamlit/secrets.toml`.")
-        # Do not stop here, just prevent database interaction below
     else:
         if st.button("Test Database Connection", help="Click to confirm the connection is active and can read data."):
             with st.spinner("Connecting and querying the 'companies' table..."):
                 try:
                     # Fetch a small sample of data (limit 5) from the 'companies' table
-                    # This confirms both connectivity and read access to the target table.
                     response = supabase.table("companies").select("*").limit(5).execute()
                     
                     if response.data:
@@ -196,9 +197,43 @@ if unique_suppliers_list:
                         st.session_state['supabase_connected'] = True
                     else:
                         st.info("Connection successful, but the 'companies' table appears to be empty or inaccessible (0 records returned).")
-                        st.session_state['supabase_connected'] = True # Connection is still successful
+                        st.session_state['supabase_connected'] = True 
                         
                 except Exception as e:
                     st.error(f"Connection Test Failed! Error: {e}")
                     st.error("Possible reasons: Incorrect URL/Key, Network firewall, or the 'companies' table does not exist or has incorrect access policies.")
                     st.session_state['supabase_connected'] = False
+                    
+    # =========================================================================
+    # NEW: STEP 3: Upload New Companies to Supabase
+    # =========================================================================
+    
+    st.markdown("---")
+    st.subheader("3. Upload New Companies")
+    
+    # Conditional checks before allowing upload
+    if supabase is None:
+        st.error("Cannot upload. Supabase client is not initialized.")
+    elif not unique_suppliers_list:
+        st.info("No unique suppliers found to upload after processing the file.")
+    else:
+        # Define the upload action button
+        if st.button(f"🚀 Upload {len(unique_suppliers_list)} Unique Suppliers to Database", type="primary"):
+            with st.spinner(f"Inserting {len(unique_suppliers_list)} candidates, performing similarity checks..."):
+                
+                # Call the core logic function from supabase_data_updater.py
+                # This function handles fuzzy matching, de-duplication, and insertion
+                inserted_records = upload_new_companies(supabase, unique_suppliers_list)
+                
+            # --- Display Results ---
+            if inserted_records is None:
+                st.error("❌ Database upload failed. Check your Supabase RLS policies (especially the INSERT policy) and the application console logs for errors.")
+            elif len(inserted_records) > 0:
+                st.balloons()
+                st.success(f"🎉 Success! Inserted **{len(inserted_records)}** new unique companies.")
+                st.subheader("Newly Inserted Records")
+                # Display the data that was actually inserted
+                st.dataframe(pd.DataFrame(inserted_records))
+            else:
+                st.info("👍 Processing complete. No new unique companies were inserted. This means all processed suppliers were either duplicates or highly similar to existing records.")
+                st.warning("Details on skipped records (due to similarity) are available in the application logs (console).")
