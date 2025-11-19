@@ -2,12 +2,40 @@ import streamlit as st
 import pandas as pd
 import os
 import sys
+# New Imports for Supabase (Step 2)
+from supabase import create_client, Client 
 
 # --- FIX: Add the project root directory to the Python path ---
 # This line is kept to ensure this page can easily be expanded later 
 # if it needs to import modules from the root.
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 # ---------------------------------------------------------------
+
+# --- Supabase Initialization (Step 2) ---
+
+@st.cache_resource
+def init_supabase_client():
+    """
+    Initializes and caches the Supabase client using credentials from st.secrets.
+    This function only runs once due to @st.cache_resource.
+    """
+    try:
+        # Retrieve credentials from the environment variables (first priority) 
+        # or st.secrets (second priority - for Streamlit Cloud deployment)
+        SUPABASE_URL = os.environ.get("SUPABASE_URL", st.secrets.get("SUPABASE_URL"))
+        SUPABASE_KEY = os.environ.get("SUPABASE_KEY", st.secrets.get("SUPABASE_KEY"))
+
+        if not SUPABASE_URL or not SUPABASE_KEY:
+            st.error("Supabase credentials (SUPABASE_URL or SUPABASE_KEY) not found in `secrets.toml` or environment variables.")
+            return None
+        
+        # Create and return the Supabase client
+        supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        return supabase
+        
+    except Exception as e:
+        st.error(f"Error initializing Supabase client: {e}")
+        return None
 
 # --- Helper Function for Data Cleaning (Advanced Step 1 Logic) ---
 
@@ -132,10 +160,45 @@ if unique_suppliers_list:
     st.info("This is the final list that will be checked against the database in the next step.")
     
     # Store the unique list in session state so Step 2 can access it easily
-    # when we add the button later.
     st.session_state['unique_suppliers_list'] = unique_suppliers_list
     
-    # --- NEW WARNING LOGIC (Based on user request) ---
+    # --- WARNING LOGIC (Based on user request) ---
     if 'suppliers_excluded_various' in st.session_state and st.session_state['suppliers_excluded_various']:
         excluded = st.session_state['suppliers_excluded_various']
         st.warning(f"⚠️ **{len(excluded)} Supplier(s) Excluded:** The following names were removed from the list because they contain the keyword 'various' (case-insensitive): \n\n" + ", ".join(excluded))
+
+    
+    # =========================================================================
+    # NEW: STEP 2: Test Supabase Connection and Read Data
+    # =========================================================================
+    
+    st.markdown("---")
+    st.subheader("2. Test Supabase Connection")
+    
+    # Initialize the Supabase client (cached)
+    supabase = init_supabase_client()
+    
+    if supabase is None:
+        st.error("Cannot proceed. Please fix Supabase credentials in `.streamlit/secrets.toml`.")
+        # Do not stop here, just prevent database interaction below
+    else:
+        if st.button("Test Database Connection", help="Click to confirm the connection is active and can read data."):
+            with st.spinner("Connecting and querying the 'companies' table..."):
+                try:
+                    # Fetch a small sample of data (limit 5) from the 'companies' table
+                    # This confirms both connectivity and read access to the target table.
+                    response = supabase.table("companies").select("*").limit(5).execute()
+                    
+                    if response.data:
+                        st.success("🎉 Connection successful! The application can read data from the 'companies' table.")
+                        st.caption("Sample Data from Database:")
+                        st.dataframe(pd.DataFrame(response.data))
+                        st.session_state['supabase_connected'] = True
+                    else:
+                        st.info("Connection successful, but the 'companies' table appears to be empty or inaccessible (0 records returned).")
+                        st.session_state['supabase_connected'] = True # Connection is still successful
+                        
+                except Exception as e:
+                    st.error(f"Connection Test Failed! Error: {e}")
+                    st.error("Possible reasons: Incorrect URL/Key, Network firewall, or the 'companies' table does not exist or has incorrect access policies.")
+                    st.session_state['supabase_connected'] = False
