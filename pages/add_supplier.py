@@ -9,53 +9,114 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 # ---------------------------------------------------------------
 
+# --- Helper Function for Data Cleaning (Advanced Step 1 Logic) ---
+
+def find_header_and_process_data(uploaded_file):
+    """
+    Reads the file, finds the header row containing 'supplier', sets the header,
+    extracts the unique supplier list, and cleans up the dataframe.
+    """
+    st.subheader("Processing Data File...")
+    
+    # 1. Initial read without header for scanning
+    try:
+        if uploaded_file.name.endswith('.csv'):
+            # Read CSV with robust separator detection, reading up to 20 rows max initially
+            df = pd.read_csv(uploaded_file, sep=None, engine='python', header=None, nrows=20)
+        else: # Assumes Excel (.xlsx)
+            df = pd.read_excel(uploaded_file, header=None, nrows=20)
+    except Exception as e:
+        st.error(f"Error reading the uploaded file initially: {e}")
+        return None
+
+    # 2. Find the row index that contains the supplier column header
+    header_row_index = -1
+    target_names = ['supplier', 'supplier name', 'company name', 'vendor']
+    
+    for i in range(len(df)):
+        # Convert row values to string, lowercase, and check if any contain a target name
+        row_str = df.iloc[i].astype(str).str.lower()
+        
+        # Check if any cell in this row contains one of the target header names
+        if row_str.str.contains('|'.join(target_names)).any():
+            header_row_index = i
+            break
+
+    if header_row_index == -1:
+        st.warning("⚠️ Could not find a header row containing 'supplier', 'company name', or 'vendor' in the first 20 rows.")
+        return None
+
+    st.success(f"Header row found at index {header_row_index + 1} (0-indexed row {header_row_index}). Discarding preceding rows.")
+
+    # 3. Re-read the file with the correct header index
+    uploaded_file.seek(0) # Reset file pointer to the beginning
+    try:
+        if uploaded_file.name.endswith('.csv'):
+            # Read the file again, starting from the identified header row
+            final_df = pd.read_csv(uploaded_file, sep=None, engine='python', header=header_row_index)
+        else:
+            final_df = pd.read_excel(uploaded_file, header=header_row_index)
+    except Exception as e:
+        st.error(f"Error re-reading file with new header row: {e}")
+        return None
+
+    # 4. Identify the exact column name for the supplier
+    supplier_column_name = None
+    for col in final_df.columns:
+        # Check for case-insensitive match with the target names
+        if any(name in str(col).lower() for name in target_names):
+            supplier_column_name = col
+            break
+
+    if supplier_column_name is None:
+        st.error("❌ Failed to identify the supplier column after setting the new header. The header row may be malformed.")
+        return None
+        
+    st.info(f"Using column: **{supplier_column_name}** for supplier list extraction.")
+
+    # 5. Get the values, remove duplicates, and drop NaN/empty values
+    unique_suppliers = final_df[supplier_column_name].dropna().astype(str).str.strip().unique().tolist()
+    
+    return unique_suppliers
+
+# --- Main Page Execution ---
+
 # --- Page Title and Introduction ---
 st.title("📦 Add Supplier Data (Step 1: File Input)")
-st.markdown("Upload your supplier data file below to preview the contents.")
+st.markdown("Upload your supplier data file below. The system will automatically detect the header row, remove preceding rows, and extract a unique list of suppliers.")
 
 # =========================================================================
-# STEP 1: Display Input Field, Handle Upload, and Show DataFrame
+# STEP 1: Display Input Field, Handle Upload, and Show Unique List
 # =========================================================================
-st.subheader("1. Upload File and Select Company Column")
+st.subheader("1. Upload File and Process")
 
-# 1. File Uploader Widget (The drag-and-drop element)
+# 1. File Uploader Widget
 uploaded_file = st.file_uploader(
     "Drag and drop your Excel (.xlsx) or CSV (.csv) file here", 
     type=["xlsx", "csv"],
-    help="The file must contain a column with the company/supplier names."
+    help="The file must contain a column with a header like 'Supplier Name', 'Company Name', or 'Vendor'."
 )
 
 if uploaded_file is None:
     st.info("Awaiting file upload...")
-    # Stop execution if no file is present
     st.stop() 
 
-# File is present, proceed to reading and displaying
+# File is present, proceed to processing
 st.success(f"File uploaded successfully: **{uploaded_file.name}**")
 
-try:
-    if uploaded_file.name.endswith('.csv'):
-        # Read CSV with robust separator detection
-        df = pd.read_csv(uploaded_file, sep=None, engine='python')
-    else: # Assumes Excel (.xlsx)
-        df = pd.read_excel(uploaded_file)
+# Process the data using the custom function
+unique_suppliers_list = find_header_and_process_data(uploaded_file)
 
-    st.subheader("Data Preview (First 5 Rows)")
-    st.dataframe(df.head())
+if unique_suppliers_list:
+    st.markdown("---")
+    st.subheader(f"✅ Extracted Supplier List (Total Unique: {len(unique_suppliers_list)})")
     
-    # Select the company name column
-    st.info("Please select the column that contains the unique Company/Supplier Names.")
-    column_options = df.columns.tolist()
-    company_column = st.selectbox(
-        "Select Company Name Column",
-        options=column_options,
-        # Set a default value if the word "name" exists in any column header
-        index=next((i for i, col in enumerate(column_options) if 'name' in col.lower()), 0)
-    )
+    # Display the list as a DataFrame for clear visibility and scrolling
+    suppliers_df = pd.DataFrame(unique_suppliers_list, columns=["Unique Supplier Name"])
+    st.dataframe(suppliers_df, height=300)
     
-    if company_column:
-        st.success(f"Selected supplier column: **{company_column}**")
+    st.info("This is the final list that will be checked against the database in the next step.")
     
-except Exception as e:
-    st.error(f"An error occurred while reading or processing the file. Error: {e}")
-    st.stop()
+    # Store the unique list in session state so Step 2 can access it easily
+    # when we add the button later.
+    st.session_state['unique_suppliers_list'] = unique_suppliers_list
