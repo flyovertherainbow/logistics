@@ -20,10 +20,17 @@ def init_supabase_client():
     This function only runs once due to @st.cache_resource.
     """
     try:
-        # Retrieve credentials from the environment variables (first priority) 
-        # or st.secrets (second priority - for Streamlit Cloud deployment)
-        SUPABASE_URL = os.environ.get("SUPABASE_URL", st.secrets.get("SUPABASE_URL"))
-        SUPABASE_KEY = os.environ.get("SUPABASE_KEY", st.secrets.get("SUPABASE_KEY"))
+        # --- FIX: Directly access st.secrets, which is the preferred way 
+        # to get credentials in Streamlit Cloud and Canvas environments. ---
+        
+        # Check if st.secrets contains the expected dictionary keys
+        if "SUPABASE_URL" not in st.secrets or "SUPABASE_KEY" not in st.secrets:
+            # Fallback check for credentials if they are passed as environment variables
+            SUPABASE_URL = os.environ.get("SUPABASE_URL")
+            SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+        else:
+            SUPABASE_URL = st.secrets["SUPABASE_URL"]
+            SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 
         if not SUPABASE_URL or not SUPABASE_KEY:
             st.error("Supabase credentials (SUPABASE_URL or SUPABASE_KEY) not found in `secrets.toml` or environment variables.")
