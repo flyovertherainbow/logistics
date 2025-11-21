@@ -4,7 +4,7 @@ import os
 import sys
 # New Imports for Supabase (Step 2)
 from supabase import create_client, Client 
-# Import the core update logic (including the new port function)
+# Import the core update logic (now simplified for companies)
 from supabase_data_updater import upload_new_companies, upload_new_ports 
 
 # --- FIX: Add the project root directory to the Python path ---
@@ -20,9 +20,6 @@ def init_supabase_client():
     This function only runs once due to @st.cache_resource.
     """
     try:
-        # --- FIX: Directly access st.secrets, which is the preferred way 
-        # to get credentials in Streamlit Cloud and Canvas environments. ---
-        
         # Check if st.secrets contains the expected dictionary keys
         if "SUPABASE_URL" not in st.secrets or "SUPABASE_KEY" not in st.secrets:
             # Fallback check for credentials if they are passed as environment variables
@@ -193,21 +190,19 @@ if unique_suppliers_list is not None: # Check against None in case of file readi
     st.markdown("---")
     st.subheader("Automatic: Check and Insert Ports/Countries")
 
-    # Display extracted port codes list/count (New addition)
+    # Display extracted port codes list/count 
     if unique_port_codes:
         st.info(f"**Extracted Port Codes:** Found {len(unique_port_codes)} unique 5-letter codes from file.")
         with st.expander("Show Extracted Codes (Raw List)"):
             # Display up to 20 codes or all codes if fewer than 20
             st.code(", ".join(unique_port_codes[:20]) + ("..." if len(unique_port_codes) > 20 else ""))
     else:
-        st.info("No valid port codes were extracted from the file.") # This covers the case before database check
+        st.info("No valid port codes were extracted from the file.") 
 
 
     if supabase is None:
         st.error("Cannot perform automatic port upload. Supabase client is not initialized.")
     elif not unique_port_codes:
-        # If no port codes were extracted, we skip the upload entirely, 
-        # but keep the messaging consistent with the above info box.
         pass
     elif 'port_upload_complete' not in st.session_state:
         # Check if the port upload has already run in the current session state
@@ -217,24 +212,45 @@ if unique_suppliers_list is not None: # Check against None in case of file readi
 
         # --- Display Results ---
         if port_result['success']:
-            if port_result['inserted_count'] > 0:
-                # Successfully inserted new ports
+            # Success Path (0 or more insertions)
+            inserted_codes = port_result.get('inserted_codes', [])
+            
+            if len(inserted_codes) > 0:
                 st.success(f"🎉 Port Check/Upload Success! {port_result['message']}")
                 
-                # Extracting just the new port codes for clear display (User Request)
-                newly_inserted_codes = [d['port_code'] for d in port_result['inserted_data']]
-                st.markdown(f"**Newly Inserted Port Codes:** `{', '.join(newly_inserted_codes)}`") 
+                # Use the new explicit return key
+                st.markdown(f"**Newly Inserted Port Codes:** `{', '.join(inserted_codes)}`") 
 
-                with st.expander("Show Full Newly Inserted Port Records"):
-                    st.dataframe(pd.DataFrame(port_result['inserted_data']))
+                with st.expander("Show All Newly Inserted Codes"):
+                    st.text_area("Codes:", value='\n'.join(inserted_codes), height=150)
             else:
-                # Inserted 0 new ports (User Request: "No new port added")
                 st.info("👍 Processing complete. **No new port added** (all extracted codes either existed in the database or were invalid/missing country codes).")
-                # Add a note if there were skipped ports during the country matching phase
-                if 'ports were skipped' in port_result['message']:
-                    st.warning(f"Note: {port_result['message']}")
+            
+            # Check for skipped ports due to missing country code (Warning after Success)
+            if port_result.get('ports_without_country') and len(port_result['ports_without_country']) > 0:
+                skipped_codes = port_result['ports_without_country']
+                st.warning(
+                    f"⚠️ **{len(skipped_codes)} Port(s) Skipped (Missing Country Code):** "
+                    f"The following codes could not be matched to an existing country and were not inserted: "
+                    f"`{', '.join(skipped_codes)}`"
+                )
+
         else:
-            st.error(f"❌ Port Database Upload Failed. Error: {port_result['message']}")
+            # Failure Path (Database error or country fetch error)
+            error_codes = port_result.get('attempted_codes', unique_port_codes)
+            
+            st.error(f"❌ Port Database Upload Failed: {port_result['message']}")
+            
+            if error_codes:
+                 st.markdown(
+                    f"**The following port codes were in the batch that failed insertion:** "
+                    f"`{', '.join(error_codes)}`"
+                )
+            else:
+                st.markdown(
+                    "No specific codes could be identified as the source of the failure, but the batch process was aborted."
+                )
+
             st.error("Ensure your 'countries' and 'ports' tables exist and have correct RLS policies for SELECT and INSERT.")
     else:
         st.info("Port codes have already been processed and uploaded in this session.")
@@ -249,10 +265,7 @@ if unique_suppliers_list is not None: # Check against None in case of file readi
         suppliers_df = pd.DataFrame(unique_suppliers_list, columns=["Unique Supplier Name"])
         st.dataframe(suppliers_df, height=300)
         
-        st.info("This list is ready to be checked against the database in Step 3.")
-        
-        # Store the unique list in session state so Step 3 can access it easily
-        st.session_state['unique_suppliers_list'] = unique_suppliers_list
+        st.info("This list is ready for insertion. The database's unique constraint will automatically skip existing names.")
         
         # --- WARNING LOGIC (For 'various' exclusion) ---
         if 'suppliers_excluded_various' in st.session_state and st.session_state['suppliers_excluded_various']:
@@ -292,33 +305,49 @@ if unique_suppliers_list is not None: # Check against None in case of file readi
                     st.session_state['supabase_connected'] = False
                     
     # =========================================================================
-    # STEP 3: Upload New Companies 
+    # STEP 3: Upload New Companies (Instant Insert)
     # =========================================================================
     
     st.markdown("---")
-    st.subheader("3. Upload New Companies (Fuzzy Matching)")
+    st.subheader("3. Upload Companies (DB Deduplication)")
     
-    # Conditional checks before allowing upload
+    total_count = len(unique_suppliers_list)
+    
     if supabase is None:
         st.error("Cannot upload companies. Supabase client is not initialized.")
     elif not unique_suppliers_list:
         st.info("No unique suppliers found to upload after processing the file.")
     else:
-        # Define the upload action button
-        if st.button(f"🚀 Upload {len(unique_suppliers_list)} Unique Suppliers to Database", type="primary"):
-            with st.spinner(f"Inserting {len(unique_suppliers_list)} candidates, performing similarity checks..."):
+        
+        # Button shows the total number of unique names extracted from the file
+        if st.button(f"🚀 Upload ALL {total_count} Suppliers (Check DB for Duplicates)", type="primary"):
+            with st.spinner(f"Attempting to insert {total_count} suppliers..."):
                 
-                # Call the core logic function from supabase_data_updater.py
-                inserted_records = upload_new_companies(supabase, unique_suppliers_list)
+                # Call the core logic function
+                company_result = upload_new_companies(supabase, unique_suppliers_list)
                 
-            # --- Display Results ---
-            if inserted_records is None:
-                st.error("❌ Database upload failed. Check your Supabase RLS policies (especially the INSERT policy) and the application console logs for errors.")
-            elif len(inserted_records) > 0:
+            # --- Display Post-Upload Results ---
+            if company_result['success']:
+                inserted_names = company_result.get('inserted_names', [])
+                inserted_count = len(inserted_names)
+                
                 st.balloons()
-                st.success(f"🎉 Success! Inserted **{len(inserted_records)}** new unique companies.")
-                st.subheader("Newly Inserted Company Records")
-                st.dataframe(pd.DataFrame(inserted_records))
+                st.success(f"🎉 Success! {company_result['message']}")
+                
+                if inserted_count > 0:
+                    st.subheader(f"Newly Inserted Company Names ({inserted_count})")
+                    st.markdown(f"`{', '.join(inserted_names[:10])}`" + ("..." if len(inserted_names) > 10 else ""))
+                    with st.expander("Show ALL Newly Inserted Names"):
+                        st.text_area("Names:", value='\n'.join(inserted_names), height=200)
+
             else:
-                st.info("👍 Processing complete. No new unique companies were inserted. This means all processed suppliers were either duplicates or highly similar to existing records.")
-                st.warning("Details on skipped records (due to similarity) are available in the application logs (console).")
+                # Failure path
+                failed_names = company_result.get('failed_names', [])
+                st.error(f"❌ Database upload failed! {company_result['message']}")
+                
+                if failed_names:
+                    st.warning(f"The upload batch contained {len(failed_names)} names, which may have contributed to the failure.")
+                    with st.expander("Show names in the failed batch"):
+                        st.text_area("Failed Batch Names:", value='\n'.join(failed_names), height=200)
+                
+                st.info("Ensure your 'companies' table exists and has correct RLS policies for INSERT and the 'company_name' column is correctly defined.")
