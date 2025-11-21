@@ -193,10 +193,22 @@ if unique_suppliers_list is not None: # Check against None in case of file readi
     st.markdown("---")
     st.subheader("Automatic: Check and Insert Ports/Countries")
 
+    # Display extracted port codes list/count (New addition)
+    if unique_port_codes:
+        st.info(f"**Extracted Port Codes:** Found {len(unique_port_codes)} unique 5-letter codes from file.")
+        with st.expander("Show Extracted Codes (Raw List)"):
+            # Display up to 20 codes or all codes if fewer than 20
+            st.code(", ".join(unique_port_codes[:20]) + ("..." if len(unique_port_codes) > 20 else ""))
+    else:
+        st.info("No valid port codes were extracted from the file.") # This covers the case before database check
+
+
     if supabase is None:
         st.error("Cannot perform automatic port upload. Supabase client is not initialized.")
     elif not unique_port_codes:
-        st.info("No valid port codes were extracted, skipping automatic port upload.")
+        # If no port codes were extracted, we skip the upload entirely, 
+        # but keep the messaging consistent with the above info box.
+        pass
     elif 'port_upload_complete' not in st.session_state:
         # Check if the port upload has already run in the current session state
         with st.spinner(f"Matching {len(unique_port_codes)} ports to country codes and inserting..."):
@@ -205,10 +217,22 @@ if unique_suppliers_list is not None: # Check against None in case of file readi
 
         # --- Display Results ---
         if port_result['success']:
-            st.success(f"🎉 Port Check/Upload Success! {port_result['message']}")
             if port_result['inserted_count'] > 0:
-                with st.expander("Show Newly Inserted Port Records"):
+                # Successfully inserted new ports
+                st.success(f"🎉 Port Check/Upload Success! {port_result['message']}")
+                
+                # Extracting just the new port codes for clear display (User Request)
+                newly_inserted_codes = [d['port_code'] for d in port_result['inserted_data']]
+                st.markdown(f"**Newly Inserted Port Codes:** `{', '.join(newly_inserted_codes)}`") 
+
+                with st.expander("Show Full Newly Inserted Port Records"):
                     st.dataframe(pd.DataFrame(port_result['inserted_data']))
+            else:
+                # Inserted 0 new ports (User Request: "No new port added")
+                st.info("👍 Processing complete. **No new port added** (all extracted codes either existed in the database or were invalid/missing country codes).")
+                # Add a note if there were skipped ports during the country matching phase
+                if 'ports were skipped' in port_result['message']:
+                    st.warning(f"Note: {port_result['message']}")
         else:
             st.error(f"❌ Port Database Upload Failed. Error: {port_result['message']}")
             st.error("Ensure your 'countries' and 'ports' tables exist and have correct RLS policies for SELECT and INSERT.")
