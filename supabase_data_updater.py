@@ -2,10 +2,161 @@ import logging
 from supabase import Client
 import sys
 import os
+import pandas as pd # Import pandas for the new function
 
 # Assuming SUPABASE_TABLE is defined globally or passed
 SUPABASE_TABLE = "companies" 
 
+# --- NEW FUNCTION: Data Cleaning and Extraction ---
+
+def extract_port_codes_and_suppliers(uploaded_file, file_type: str) -> dict:
+    """
+    Reads an uploaded logistics report file, identifies the correct header row
+    and column names based on known patterns, and extracts unique port codes 
+    and supplier names.
+
+    Args:
+        uploaded_file: The file object from Streamlit's st.file_uploader.
+        file_type: 'csv' or 'xlsx'.
+
+    Returns:
+        A dictionary containing:
+        - 'success': bool
+        - 'message': str
+        - 'unique_port_codes': list of str (or empty list)
+        - 'unique_suppliers': list of str (or empty list)
+    """
+    
+    # 1. Define possible column names for port codes and suppliers across different report formats
+    PORT_COLUMN_MAP = {
+        # File 1 & 3 example (assuming "port/terminal of loading code" is the target for file 3)
+        "port of discharge code": "DISCHARGE",
+        "port/terminal of loading code": "LOADING",
+        # File 2 example
+        "load": "LOADING",
+        "disch.": "DISCHARGE",
+        # File 3 example
+        "port of destination": "DISCHARGE",
+        "port of origin": "LOADING",
+        # Fallback names found in some snippets
+        "port of destination": "DISCHARGE",
+        "port of origin": "LOADING",
+    }
+    SUPPLIER_COLUMN_NAMES = ["supplier", "supplier name", "shipper name", "contractorcode"]
+
+    try:
+        # 2. Find the actual header row (based on "Supplier" or "Suppluer name")
+        # We need to read the first few rows as plain text to find the header
+        
+        # Reset file pointer to the beginning
+        uploaded_file.seek(0)
+        
+        # Read file into lines (first 50 lines should be enough)
+        # Use io.StringIO for CSV or load into memory for Excel
+        if file_type == 'csv':
+            import io
+            file_content = uploaded_file.read().decode('utf-8')
+            lines = file_content.splitlines()
+        else: # xlsx
+            # For Excel, we must read rows iteratively which is less efficient,
+            # but usually the report structure is consistent. We'll use pandas read_excel.
+            # We'll rely on the pandas functionality to infer the header row later.
+            lines = None 
+            
+        header_row_index = -1
+        
+        if lines:
+            # Look for the header row index containing a clear Supplier column
+            for i, line in enumerate(lines[:50]):
+                # Normalize line for search (case-insensitive, remove commas for general check)
+                normalized_line = line.lower().replace('"', '').replace("'", "")
+                
+                # Check for "supplier", "shipper name", or common misspellings/variants
+                if "supplier" in normalized_line or "shipper name" in normalized_line or "contractorcode" in normalized_line:
+                    header_row_index = i
+                    break
+        
+        # 3. Read the file into a DataFrame using the determined header
+        
+        # Reset file pointer again before handing off to pandas
+        uploaded_file.seek(0)
+        
+        if file_type == 'csv':
+            # Use header_row_index + 1 because pandas header index is 0-based from the start of the file
+            df = pd.read_csv(uploaded_file, header=header_row_index if header_row_index != -1 else 0, sep=None, engine='python')
+        else: # xlsx
+             # For Excel, try to infer the header row index (Excel often has the header on the first sheet)
+             # If we couldn't find it manually, pandas defaults to the first row (index 0).
+             df = pd.read_excel(uploaded_file, header=header_row_index if header_row_index != -1 else 0)
+
+
+        # 4. Standardize Column Names
+        # Create a mapping from current column names (case-insensitive) to normalized names
+        column_map = {}
+        port_columns = []
+        supplier_column = None
+        
+        # Normalize all DataFrame columns to lowercase for matching
+        normalized_df_columns = {col.strip().lower(): col for col in df.columns}
+        
+        # Find Port Columns
+        for current_name_lower, canonical_name in PORT_COLUMN_MAP.items():
+            if current_name_lower in normalized_df_columns:
+                original_name = normalized_df_columns[current_name_lower]
+                port_columns.append(original_name)
+                logging.info(f"Found Port Column: '{original_name}' (Type: {canonical_name})")
+
+        # Find Supplier Column
+        for name in SUPPLIER_COLUMN_NAMES:
+            if name in normalized_df_columns:
+                supplier_column = normalized_df_columns[name]
+                logging.info(f"Found Supplier Column: '{supplier_column}'")
+                break
+        
+        if not port_columns or not supplier_column:
+            missing_cols = []
+            if not port_columns:
+                missing_cols.append("Port Code (e.g., Load/Discharge)")
+            if not supplier_column:
+                missing_cols.append("Supplier Name")
+            return {
+                'success': False,
+                'message': f"Could not find required columns in the file: {', '.join(missing_cols)} using any known aliases. Please check the file format.",
+                'unique_port_codes': [],
+                'unique_suppliers': []
+            }
+
+
+        # 5. Extract Unique Data
+        
+        # Extract unique Port Codes
+        all_port_codes = pd.Series(dtype=str)
+        for col in port_columns:
+            # Concatenate all non-null values from all identified port columns
+            all_port_codes = pd.concat([all_port_codes, df[col].dropna().astype(str).str.strip()])
+            
+        # Filter to ensure only 5-character UN/LOCODEs are kept (AABBBL, e.g., CNSHA)
+        # Assuming port codes are always 5 uppercase letters, filtering out garbage data.
+        unique_port_codes = all_port_codes[all_port_codes.str.len() == 5].str.upper().unique().tolist()
+        
+        # Extract unique Supplier Names (dropna and unique)
+        unique_suppliers = df[supplier_column].dropna().astype(str).str.strip().unique().tolist()
+
+        return {
+            'success': True,
+            'message': f"Successfully extracted {len(unique_suppliers)} unique suppliers and {len(unique_port_codes)} unique port codes.",
+            'unique_port_codes': unique_port_codes,
+            'unique_suppliers': unique_suppliers
+        }
+
+    except Exception as e:
+        logging.error(f"Error during file processing: {e}", exc_info=True)
+        return {
+            'success': False,
+            'message': f"Failed to read or process the file. Error: {e}",
+            'unique_port_codes': [],
+            'unique_suppliers': []
+        }
 # --- Modified Function: Upload Ports (Returns inserted_codes list) ---
 
 def upload_new_ports(supabase: Client, unique_port_codes: list):
