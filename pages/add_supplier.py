@@ -1,318 +1,182 @@
-import logging
-from supabase import Client
-import sys
+import streamlit as st
+import pandas as pd
+from supabase import create_client, Client
 import os
-import pandas as pd # Import pandas for the new function
+import sys
+# Import the custom utility functions from your existing file, including the new one
+from supabase_data_updater import upload_new_companies, upload_new_ports, extract_port_codes_and_suppliers
 
-# Assuming SUPABASE_TABLE is defined globally or passed
-SUPABASE_TABLE = "companies" 
-
-# --- NEW FUNCTION: Data Cleaning and Extraction ---
-
-def extract_port_codes_and_suppliers(uploaded_file, file_type: str) -> dict:
-    """
-    Reads an uploaded logistics report file, identifies the correct header row
-    and column names based on known patterns, and extracts unique port codes 
-    and supplier names.
-
-    Args:
-        uploaded_file: The file object from Streamlit's st.file_uploader.
-        file_type: 'csv' or 'xlsx'.
-
-    Returns:
-        A dictionary containing:
-        - 'success': bool
-        - 'message': str
-        - 'unique_port_codes': list of str (or empty list)
-        - 'unique_suppliers': list of str (or empty list)
-    """
+# --- Supabase Initialization (Placeholder for Configuration) ---
+# NOTE: This block is crucial.
+try:
+    SUPABASE_URL = os.environ.get("SUPABASE_URL", st.secrets.get("SUPABASE_URL"))
+    SUPABASE_KEY = os.environ.get("SUPABASE_KEY", st.secrets.get("SUPABASE_KEY"))
     
-    # 1. Define possible column names for port codes and suppliers across different report formats
-    PORT_COLUMN_MAP = {
-        # File 1 & 3 example (assuming "port/terminal of loading code" is the target for file 3)
-        "port of discharge code": "DISCHARGE",
-        "port/terminal of loading code": "LOADING",
-        # File 2 example
-        "load": "LOADING",
-        "disch.": "DISCHARGE",
-        # File 3 example
-        "port of destination": "DISCHARGE",
-        "port of origin": "LOADING",
-        # Fallback names found in some snippets
-        "port of destination": "DISCHARGE",
-        "port of origin": "LOADING",
-    }
-    SUPPLIER_COLUMN_NAMES = ["supplier", "supplier name", "shipper name", "contractorcode"]
+    # Initialize Supabase client
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        st.error("Supabase credentials not found. Please set SUPABASE_URL and SUPABASE_KEY in your secrets.")
+        supabase = None
+    else:
+        # Use a non-global variable for the client to ensure clean setup
+        supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+except Exception as e:
+    st.error(f"Error initializing Supabase client. Error: {e}")
+    # Setting supabase to None ensures the app doesn't crash but shows an error message
+    supabase = None
 
-    try:
-        # 2. Find the actual header row (based on "Supplier" or "Suppluer name")
-        # We need to read the first few rows as plain text to find the header
+# --- Page Navigation Functions ---
+
+def navigate_to(page_name):
+    """Function to change the current page in session state."""
+    st.session_state.page = page_name
+
+def show_home_page():
+    """
+    The main landing page showing a list of functions/features.
+    """
+    st.title("🏡 Logistics Management System")
+    st.markdown("Welcome back! Select a function below to manage your data.")
+    
+    st.subheader("Available Functions")
+    
+    # Use columns to present features cleanly
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.info("Function 1: Data Upload")
+        # This button is what the user clicks to see the drag-and-drop element
+        if st.button("➕ Add Supplier & Port Data", key="add_supplier_btn", help="Upload a new Excel/CSV file to update the companies and ports lists."):
+            navigate_to("Add Supplier")
+
+    with col2:
+        st.info("Function 2: View Metrics")
+        if st.button("📊 View Dashboard", key="view_dashboard_btn", help="See key performance indicators and visualizations."):
+            navigate_to("Dashboard")
+
+    with col3:
+        st.info("Function 3: Future Feature")
+        st.button("⚙️ Configuration", disabled=True, help="Coming soon...")
         
-        # Reset file pointer to the beginning
-        uploaded_file.seek(0)
+    st.markdown("---")
+    # Display Supabase connection status
+    if supabase:
+        st.write("Current Supabase Connection Status: **Ready**")
+    else:
+        st.warning("Supabase Connection Status: **Not Configured** (Upload functions will fail)")
+
+def show_data_uploader_page(supabase: Client):
+    """
+    Displays the UI for file upload and database update logic (The 'Add Supplier' page).
+    Handles data extraction, company upload, and port upload.
+    """
+    st.title("📦 Data Uploader (Companies and Ports)")
+    st.markdown("Upload your latest logistics report. The system will automatically identify, clean, and extract unique company names and port codes (UN/LOCODEs) before inserting them into the Supabase database.")
+    
+    if supabase is None:
+        st.error("Cannot access this feature. Supabase client failed to initialize due to missing credentials.")
+        return
+
+    # 1. File Uploader Widget
+    uploaded_file = st.file_uploader(
+        "Drag and drop your Excel (.xlsx) or CSV (.csv) logistics report here", 
+        type=["xlsx", "csv"],
+        help="The system will try to automatically detect the header row and relevant columns based on common logistics report formats."
+    )
+
+    # 2. Main Processing Logic
+    if uploaded_file is not None:
+        st.success(f"File uploaded successfully: **{uploaded_file.name}**")
         
-        # Read file into lines (first 50 lines should be enough)
-        # Use io.StringIO for CSV or load into memory for Excel
-        if file_type == 'csv':
-            import io
-            file_content = uploaded_file.read().decode('utf-8')
-            lines = file_content.splitlines()
-        else: # xlsx
-            # For Excel, we must read rows iteratively which is less efficient,
-            # but usually the report structure is consistent. We'll use pandas read_excel.
-            # We'll rely on the pandas functionality to infer the header row later.
-            lines = None 
-            
-        header_row_index = -1
-        
-        if lines:
-            # Look for the header row index containing a clear Supplier column
-            for i, line in enumerate(lines[:50]):
-                # Normalize line for search (case-insensitive, remove commas for general check)
-                normalized_line = line.lower().replace('"', '').replace("'", "")
+        file_extension = uploaded_file.name.split('.')[-1].lower()
+
+        # The primary button to kick off the process
+        if st.button("Process & Upload All Data", type="primary"):
+            with st.spinner("Analyzing file structure, cleaning data, and preparing for upload..."):
                 
-                # Check for "supplier", "shipper name", or common misspellings/variants
-                if "supplier" in normalized_line or "shipper name" in normalized_line or "contractorcode" in normalized_line:
-                    header_row_index = i
-                    break
-        
-        # 3. Read the file into a DataFrame using the determined header
-        
-        # Reset file pointer again before handing off to pandas
-        uploaded_file.seek(0)
-        
-        if file_type == 'csv':
-            # Use header_row_index + 1 because pandas header index is 0-based from the start of the file
-            df = pd.read_csv(uploaded_file, header=header_row_index if header_row_index != -1 else 0, sep=None, engine='python')
-        else: # xlsx
-             # For Excel, try to infer the header row index (Excel often has the header on the first sheet)
-             # If we couldn't find it manually, pandas defaults to the first row (index 0).
-             df = pd.read_excel(uploaded_file, header=header_row_index if header_row_index != -1 else 0)
+                # --- Step 1: Clean and Extract Data ---
+                # The file object needs to be cloned or read fully because pandas and manual reading 
+                # might exhaust the file buffer. Simple file.seek(0) should usually suffice 
+                # if the file isn't massive, but we trust the inner function to handle seek(0).
+                extraction_result = extract_port_codes_and_suppliers(uploaded_file, file_extension)
 
+                if not extraction_result['success']:
+                    st.error(f"❌ Extraction Failed: {extraction_result['message']}")
+                    return
 
-        # 4. Standardize Column Names
-        # Create a mapping from current column names (case-insensitive) to normalized names
-        column_map = {}
-        port_columns = []
-        supplier_column = None
-        
-        # Normalize all DataFrame columns to lowercase for matching
-        normalized_df_columns = {col.strip().lower(): col for col in df.columns}
-        
-        # Find Port Columns
-        for current_name_lower, canonical_name in PORT_COLUMN_MAP.items():
-            if current_name_lower in normalized_df_columns:
-                original_name = normalized_df_columns[current_name_lower]
-                port_columns.append(original_name)
-                logging.info(f"Found Port Column: '{original_name}' (Type: {canonical_name})")
+                unique_suppliers = extraction_result['unique_suppliers']
+                unique_port_codes = extraction_result['unique_port_codes']
+                
+                st.info(extraction_result['message'])
+                st.subheader("Extracted Data Summary")
+                st.write(f"Found **{len(unique_suppliers)}** unique supplier names.")
+                st.write(f"Found **{len(unique_port_codes)}** unique 5-letter UN/LOCODEs.")
 
-        # Find Supplier Column
-        for name in SUPPLIER_COLUMN_NAMES:
-            if name in normalized_df_columns:
-                supplier_column = normalized_df_columns[name]
-                logging.info(f"Found Supplier Column: '{supplier_column}'")
-                break
-        
-        if not port_columns or not supplier_column:
-            missing_cols = []
-            if not port_columns:
-                missing_cols.append("Port Code (e.g., Load/Discharge)")
-            if not supplier_column:
-                missing_cols.append("Supplier Name")
-            return {
-                'success': False,
-                'message': f"Could not find required columns in the file: {', '.join(missing_cols)} using any known aliases. Please check the file format.",
-                'unique_port_codes': [],
-                'unique_suppliers': []
-            }
-
-
-        # 5. Extract Unique Data
-        
-        # Extract unique Port Codes
-        all_port_codes = pd.Series(dtype=str)
-        for col in port_columns:
-            # Concatenate all non-null values from all identified port columns
-            all_port_codes = pd.concat([all_port_codes, df[col].dropna().astype(str).str.strip()])
             
-        # Filter to ensure only 5-character UN/LOCODEs are kept (AABBBL, e.g., CNSHA)
-        # Assuming port codes are always 5 uppercase letters, filtering out garbage data.
-        unique_port_codes = all_port_codes[all_port_codes.str.len() == 5].str.upper().unique().tolist()
-        
-        # Extract unique Supplier Names (dropna and unique)
-        unique_suppliers = df[supplier_column].dropna().astype(str).str.strip().unique().tolist()
-
-        return {
-            'success': True,
-            'message': f"Successfully extracted {len(unique_suppliers)} unique suppliers and {len(unique_port_codes)} unique port codes.",
-            'unique_port_codes': unique_port_codes,
-            'unique_suppliers': unique_suppliers
-        }
-
-    except Exception as e:
-        logging.error(f"Error during file processing: {e}", exc_info=True)
-        return {
-            'success': False,
-            'message': f"Failed to read or process the file. Error: {e}",
-            'unique_port_codes': [],
-            'unique_suppliers': []
-        }
-# --- Modified Function: Upload Ports (Returns inserted_codes list) ---
-
-def upload_new_ports(supabase: Client, unique_port_codes: list):
-    """
-    Fetches country IDs, prepares port data, and inserts new port codes into the 'ports' table.
-    
-    1. Compares first two letters of port code (e.g., 'CN') to 'countries.code'.
-    2. Inserts port_code and corresponding country_id into the 'ports' table.
-    3. Uses upsert(..., on_conflict='port_code') to skip existing ports (ensuring no duplicates).
-    
-    Args:
-        supabase: The initialized Supabase client object.
-        unique_port_codes: A list of unique port codes (strings) to insert.
-        
-    Returns:
-        A dictionary containing insertion results and error messages, including lists of codes that were skipped or failed.
-    """
-    logging.info(f"Starting port data upload for {len(unique_port_codes)} unique codes.")
-    
-    # Initialize error/skipped lists
-    ports_without_country = []
-    
-    # --- Step 1: Fetch all country codes and IDs ---
-    try:
-        # Fetch Country Code and ID (Requirement 2)
-        country_response = supabase.table("countries").select("id, code").execute()
-        country_map = {item['code'].upper(): item['id'] for item in country_response.data}
-        logging.info(f"Fetched {len(country_map)} country records.")
-    except Exception as e:
-        logging.error(f"Error fetching country data: {e}", exc_info=True)
-        return {
-            'success': False, 
-            'message': 'Failed to fetch country data.',
-            'inserted_count': 0,
-            'attempted_codes': unique_port_codes 
-        }
-
-    # --- Step 2: Prepare port data for insertion (Requirement 3) ---
-    data_to_insert = []
-    
-    for port_code in unique_port_codes:
-        if len(port_code) >= 2:
-            country_code = port_code[:2].upper()
-            country_id = country_map.get(country_code)
+            # --- Step 2: Upload Companies ---
+            with st.spinner("Uploading unique companies to the 'companies' table..."):
+                company_result = upload_new_companies(supabase, unique_suppliers)
             
-            if country_id is not None:
-                data_to_insert.append({
-                    "port_code": port_code,
-                    "country_id": country_id
-                })
+            if company_result['success']:
+                st.success(f"Company Upload Status: {company_result['message']}")
             else:
-                ports_without_country.append(port_code)
-        else:
-             ports_without_country.append(port_code)
+                st.error(f"Company Upload Failed: {company_result['message']}")
 
-    attempted_codes_for_db = [item['port_code'] for item in data_to_insert]
 
-    if not data_to_insert:
-        logging.info("No valid port data to insert after country matching.")
-        return {
-            'success': True, 
-            'message': 'No valid port codes found for insertion.', 
-            'inserted_count': 0, 
-            'inserted_codes': [], # Explicitly returning empty list
-            'ports_without_country': ports_without_country
-        }
+            # --- Step 3: Upload Ports ---
+            with st.spinner("Uploading new port codes to the 'ports' table (linking to countries)..."):
+                port_result = upload_new_ports(supabase, unique_port_codes)
 
-    # --- Step 3: Execute the insertion using upsert (Requirement 4) ---
-    try:
-        # Use upsert(..., on_conflict='port_code') to only insert new ports 
-        # (This is the mechanism for avoiding duplicates on the 'port_code' column)
-        response = supabase.table("ports") \
-            .upsert(data_to_insert, on_conflict='port_code') \
-            .execute()
-        
-        inserted_records = response.data
-        inserted_count = len(inserted_records)
-        # Extract the codes of the newly inserted records
-        inserted_codes = [r['port_code'] for r in inserted_records] 
-        
-        message = f"Successfully inserted {inserted_count} new ports."
-        
-        return {
-            'success': True, 
-            'message': message, 
-            'inserted_count': inserted_count, 
-            'inserted_codes': inserted_codes, # NEW: Returning the list of inserted codes
-            'ports_without_country': ports_without_country
-        }
+            if port_result['success']:
+                st.success(f"Port Upload Status: {port_result['message']}")
+                if port_result.get('ports_without_country'):
+                    st.warning(f"⚠️ **{len(port_result['ports_without_country'])}** port codes could not be matched to a country (first 2 letters of UN/LOCODE) and were skipped.")
+            else:
+                st.error(f"Port Upload Failed: {port_result['message']}")
+                
+            st.balloons()
+            st.success("🎉 All uploads complete! Check the Supabase console for details.")
 
-    except Exception as e:
-        logging.error(f"An error occurred during Supabase port insertion: {e}", exc_info=True)
-        return {
-            'success': False, 
-            'message': f'Database upload failed: {e}',
-            'inserted_count': 0,
-            'attempted_codes': attempted_codes_for_db
-        }
 
-# --- Modified Function: Upload Companies (Instant Insert) ---
-def upload_new_companies(supabase: Client, unique_suppliers_list: list):
+    else:
+        st.info("Awaiting file upload...")
+
+def show_dashboard_page():
     """
-    Prepares and uploads all unique company names to the 'companies' table,
-    relying on the table's UNIQUE constraint on 'company_name' to prevent duplicates.
+    Placeholder for the Dashboard page.
     """
-    
-    # 1. Prepare the data for insertion
-    data_to_insert = []
-    for name in unique_suppliers_list:
-        data_to_insert.append({
-            "company_name": name,      # Inserts the supplier name (original string)
-            "company_cat": 1           # Inserts the digit 1
-        })
-    
-    attempted_names = unique_suppliers_list # All names we try to insert
+    st.title("📊 Logistics Dashboard (Placeholder)")
+    st.markdown("This section will eventually show visualizations or metrics related to your logistics data.")
+    st.image("https://placehold.co/800x400/94A3B8/FFFFFF?text=Data+Visualization+Here", caption="A placeholder chart") 
+    # Example placeholder: This would require a fetch call to Supabase
+    st.write("Current companies count: [Fetch count from Supabase here]")
 
-    if not data_to_insert:
-        return {
-            'success': True, 
-            'message': 'No companies provided for insertion.',
-            'inserted_names': [],
-        }
+# --- Main App Execution ---
 
-    logging.info(f"Attempting to upsert {len(data_to_insert)} records into '{SUPABASE_TABLE}'...")
+# 1. Set Page Configuration
+st.set_page_config(
+    page_title="Supabase Logistics App",
+    layout="wide",
+    initial_sidebar_state="auto",
+)
 
-    try:
-        # 2. Execute the insertion using .upsert() for conflict resolution
-        response = supabase.table(SUPABASE_TABLE) \
-            .upsert(data_to_insert, on_conflict='company_name') \
-            .execute()
-        
-        inserted_records = response.data
-        inserted_names = [r['company_name'] for r in inserted_records]
-        
-        # Calculate how many were skipped due to existing UNIQUE constraint
-        inserted_count = len(inserted_names)
-        skipped_count = len(attempted_names) - inserted_count
-        
-        message = (
-            f"Successfully inserted {inserted_count} new companies." 
-            + (f" ({skipped_count} existing companies were skipped automatically.)" if skipped_count > 0 else "")
-        )
+# 2. Initialize Session State for Navigation
+if "page" not in st.session_state:
+    st.session_state.page = "Home"
 
-        return {
-            'success': True, 
-            'message': message, 
-            'inserted_names': inserted_names,
-        }
-        
-    except Exception as e:
-        # Log the error including the full traceback
-        logging.error(f"An error occurred during Supabase insertion: {e}", exc_info=True)
-        
-        # Return the names that were in the batch that failed
-        return {
-            'success': False, 
-            'message': f'Database upload failed. Error details: {e}',
-            'failed_names': attempted_names,
-        }
+# 3. Sidebar (for returning home)
+st.sidebar.title("Navigation")
+if st.session_state.page != "Home":
+    if st.sidebar.button("🏠 Back to Home", key="home_btn"):
+        navigate_to("Home")
+else:
+    # Give a brief context on the home page
+    st.sidebar.markdown("Use the buttons below to switch features.")
+
+
+# 4. Conditional Page Rendering
+if st.session_state.page == "Home":
+    show_home_page()
+elif st.session_state.page == "Add Supplier":
+    show_data_uploader_page(supabase)
+elif st.session_state.page == "Dashboard":
+    show_dashboard_page()
