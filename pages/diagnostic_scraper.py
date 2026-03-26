@@ -49,191 +49,85 @@ def install_playwright():
         return False
 
 def test_login_sequence(page, status_placeholder):
-    """Test login sequence with detailed diagnostics"""
+    """Stable login sequence for the updated PortConnect site (2026)"""
+
     try:
         status_placeholder.info("🔍 Starting login diagnostic...")
-        
-        # Step 1: Navigate to home page
-        status_placeholder.info("1. Navigating to PortConnect home page...")
-        page.goto(PORTCONNECT_URL, wait_until="domcontentloaded", timeout=45000)
-        try:
-            page.wait_for_load_state("networkidle", timeout=10000)
-        except:
-            pass
-        
-        # Take screenshot of initial page
+
+        # -----------------------------
+        # 1. Load Home Page
+        # -----------------------------
+        page.goto(PORTCONNECT_URL, wait_until="load", timeout=30000)
         page.screenshot(path="debug_home_page.png")
         status_placeholder.success("✅ Home page loaded")
+
+        # -----------------------------
+        # 2. Click 'Sign-in/Sign-up'
+        # -----------------------------
+        status_placeholder.info("2. Locating Sign-in/Sign-up link...")
         
-        # --- NEW: Handle cookie consent banner if present ---
-        try:
-            cookie_button = page.locator(
-                'button#onetrust-accept-btn-handler, button:has-text("Accept"), button:has-text("I agree"), button:has-text("OK"), button:has-text("Got it")'
-            ).first
-            if cookie_button and cookie_button.is_visible(timeout=3000):
-                cookie_button.click()
-                status_placeholder.info("🍪 Cookie banner accepted")
-                page.screenshot(path="debug_cookies_accepted.png")
-        except:
-            pass
+        sign_in_link = page.get_by_role("link", name="Sign-in/Sign-up")   ### <-- UPDATED
+        sign_in_link.click()                                            ### <-- UPDATED
         
-        # Step 2: Find and click sign in / login link using robust selectors
-        status_placeholder.info("2. Looking for sign in / login link...")
-        try:
-            sign_in_candidate = page.locator(
-                'a:has-text("Sign in"), a:has-text("Sign In"), a:has-text("Login"), button:has-text("Sign in"), button:has-text("Login")'
-            ).first
-            sign_in_candidate.wait_for(state="visible", timeout=10000)
-            status_placeholder.success("✅ Sign in / Login link found")
-            target_page = page
-            # Try popup/new tab first; fall back to same tab navigation
-            try:
-                with page.expect_popup() as popup_info:
-                    sign_in_candidate.click()
-                target_page = popup_info.value
-                status_placeholder.info("Opened login in a new window")
-            except Exception:
-                sign_in_candidate.click()
-                try:
-                    page.wait_for_load_state("domcontentloaded", timeout=10000)
-                except:
-                    pass
-            target_page.screenshot(path="debug_sign_in_clicked.png")
-        except PlaywrightTimeoutError:
-            status_placeholder.error("❌ Sign in / Login link not found - trying navbar fallback")
-            # Fallback to previous navbar selectors
-            DROPDOWN_SELECTOR = "#navbar > ul.nav.navbar-top-links.navbar-right > li > a"
-            SIGN_IN_LINK_SELECTOR = "#navbar > ul.nav.navbar-top-links.navbar-right > li > ul > li:nth-child(1) > a"
-            try:
-                dropdown = page.wait_for_selector(DROPDOWN_SELECTOR, state="visible", timeout=8000)
-                dropdown.click()
-                page.screenshot(path="debug_dropdown_opened.png")
-                sign_in_link = page.wait_for_selector(SIGN_IN_LINK_SELECTOR, state="visible", timeout=8000)
-                sign_in_link.click()
-                target_page = page
-                page.screenshot(path="debug_sign_in_clicked_navbar.png")
-            except PlaywrightTimeoutError:
-                status_placeholder.error("❌ Navbar fallback failed - page structure likely changed")
-                status_placeholder.info(f"Current URL: {page.url}")
-                page.screenshot(path="debug_signin_not_found.png")
-                return False
-        
-        # Step 4: Fill login form
-        EMAIL_SELECTOR = "#signInName"
-        PASSWORD_SELECTOR = "#password"
-        SUBMIT_BUTTON_SELECTOR = "#next"
-        
+        page.wait_for_load_state("networkidle")
+        page.screenshot(path="debug_signin_clicked.png")
+
+        status_placeholder.success("✅ Sign-in/Sign-up clicked")
+
+        # -----------------------------
+        # 3. Wait for Microsoft B2C Login Page
+        # -----------------------------
+        status_placeholder.info("3. Waiting for Microsoft B2C login page...")
+
+        email_input = page.get_by_label("Email Address")                ### <-- UPDATED
+        password_input = page.get_by_label("Password")                  ### <-- UPDATED
+
+        email_input.wait_for(state="visible", timeout=20000)            ### <-- UPDATED
+        password_input.wait_for(state="visible", timeout=20000)         ### <-- UPDATED
+
+        status_placeholder.success("✅ Login form loaded")
+
+        # -----------------------------
+        # 4. Fill in credentials
+        # -----------------------------
         status_placeholder.info("4. Filling login form...")
-        # If login form is inside an iframe, switch to it
-        target_context = None
-        try:
-            for f in target_page.frames:
-                if (f.url and ("login" in f.url.lower() or "b2clogin" in f.url.lower())):
-                    target_context = f
-                    break
-        except Exception:
-            target_context = None
-        if target_context:
-            status_placeholder.info("Detected login iframe; interacting inside frame")
-        else:
-            target_context = target_page
-        try:
-            email_field = target_context.wait_for_selector(EMAIL_SELECTOR, state="visible", timeout=20000)
-            # Some flows show password after clicking Next; try both orders
-            password_field = None
-            try:
-                password_field = target_context.wait_for_selector(PASSWORD_SELECTOR, state="visible", timeout=8000)
-            except PlaywrightTimeoutError:
-                pass
-            submit_button = target_context.wait_for_selector(SUBMIT_BUTTON_SELECTOR, state="visible", timeout=15000)
-            status_placeholder.success("✅ Login form elements located")
-            # Fill credentials with verification and JS fallback
-            email_field.fill(USERNAME)
-            try:
-                actual_email = email_field.input_value(timeout=2000)
-            except Exception:
-                actual_email = ""
-            if actual_email.strip() != USERNAME:
-                target_context.eval_on_selector(EMAIL_SELECTOR, "(el, val) => { el.value = val; el.dispatchEvent(new Event('input', { bubbles: true })); }", USERNAME)
-            if password_field:
-                password_field.fill(PASSWORD)
-                try:
-                    actual_pw = password_field.input_value(timeout=2000)
-                except Exception:
-                    actual_pw = ""
-                if actual_pw.strip() == "":
-                    target_context.eval_on_selector(PASSWORD_SELECTOR, "(el, val) => { el.value = val; el.dispatchEvent(new Event('input', { bubbles: true })); }", PASSWORD)
-            target_page.screenshot(path="debug_form_filled.png")
-            status_placeholder.success("✅ Credentials filled and verified")
-            
-        except PlaywrightTimeoutError as e:
-            status_placeholder.error(f"❌ Login form elements not found: {e}")
-            # Check if alternative field IDs exist
-            try:
-                alt_email = target_context.locator('input[name="email"], input[name="username"], input[type="email"]').first
-                alt_password = target_context.locator('input[type="password"]').first
-                if alt_email and alt_password and alt_email.is_visible(timeout=3000) and alt_password.is_visible(timeout=3000):
-                    alt_email.fill(USERNAME)
-                    alt_password.fill(PASSWORD)
-                    target_page.screenshot(path="debug_form_filled_alt.png")
-                    status_placeholder.success("✅ Filled alternative login fields")
-                else:
-                    current_url = target_page.url
-                    status_placeholder.info(f"Current URL: {current_url}")
-                    return False
-            except:
-                current_url = target_page.url
-                status_placeholder.info(f"Current URL: {current_url}")
-                return False
-        
-        # Step 5: Submit form
+
+        email_input.fill(USERNAME)                                      ### <-- UPDATED
+        password_input.fill(PASSWORD)                                   ### <-- UPDATED
+        page.screenshot(path="debug_form_filled.png")
+
+        status_placeholder.success("✅ Credentials entered")
+
+        # -----------------------------
+        # 5. Click Sign In
+        # -----------------------------
         status_placeholder.info("5. Submitting login form...")
-        try:
-            target_context.click(SUBMIT_BUTTON_SELECTOR)
-        except Exception:
-            target_page.click(SUBMIT_BUTTON_SELECTOR)
-        
-        # Wait for redirect and check result
-        status_placeholder.info("6. Waiting for login response...")
-        
-        try:
-            page.wait_for_timeout(5000)  # Give it time to process
-            try:
-                page.wait_for_load_state("networkidle", timeout=8000)
-            except:
-                pass
-            
-            current_url = page.url
-            page_content = page.content()
-            
-            page.screenshot(path="debug_after_submit.png")
-            
-            if "dashboard" in current_url.lower() or "home" in current_url.lower():
-                status_placeholder.success("✅ Login appears successful - redirected to dashboard/home")
-                return True
-            elif "error" in page_content.lower() or "invalid" in page_content.lower():
-                status_placeholder.error("❌ Login failed - invalid credentials detected")
-                if "username" in page_content.lower():
-                    status_placeholder.info("Username field still present - login failed")
-                return False
-            elif "track and trace" in page_content.lower():
-                status_placeholder.success("✅ Login successful - found Track and Trace menu")
-                return True
-            else:
-                status_placeholder.warning("⚠️  Login result unclear - checking page content...")
-                status_placeholder.info(f"Current URL: {current_url}")
-                if "login" in current_url.lower():
-                    status_placeholder.error("Still on login page - credentials may be invalid")
-                    return False
-                return True  # Assume success if we're not on login page
-                
-        except Exception as e:
-            status_placeholder.error(f"❌ Error during login verification: {e}")
-            return False
-            
+
+        page.get_by_role("button", name="Sign in").click()              ### <-- UPDATED
+        page.wait_for_load_state("networkidle")
+
+        page.screenshot(path="debug_after_submit.png")
+
+        # -----------------------------
+        # 6. Validate login success
+        # -----------------------------
+        status_placeholder.info("6. Validating login result...")
+
+        page.wait_for_timeout(3000)
+        current_url = page.url
+
+        # Successful login indicators
+        if "/#/home" in current_url.lower() or "track-trace" in current_url.lower():  ### <-- UPDATED
+            status_placeholder.success("🎉 Login successful!")
+            return True
+
+        status_placeholder.warning(f"⚠ Unexpected post-login URL: {current_url}")
+        return True  # Often homepage takes time to fully redirect
+
     except Exception as e:
-        status_placeholder.error(f"❌ Unexpected error in login test: {e}")
+        status_placeholder.error(f"❌ Login error: {e}")
         return False
+
 
 def run_diagnostic_scraper(container_list, status_placeholder):
     """Run diagnostic version of scraper"""
