@@ -184,37 +184,54 @@ def run_diagnostic_scraper(container_list, status_placeholder):
             if login_success:
                 status_placeholder.success("🎉 Login test passed!")
                 
-                # Try to navigate to search page
+                # -------------------------------
+                # NEW SEARCH PAGE LOGIC STARTS HERE
+                # -------------------------------
                 status_placeholder.info("7. Navigating to Track & Trace Search...")
-                
-                # Look for Track and Trace menu
-                try:
-                    track_trace_menu = page.locator('a:has-text("Track and Trace")')
-                    track_trace_menu.wait_for(state="visible", timeout=10000)
-                    track_trace_menu.click()
-                    
-                    # Look for search link
-                    search_link = page.locator('a[href="/#/track-trace/search"]')
-                    search_link.wait_for(state="visible", timeout=10000)
-                    search_link.click()
-                    
-                    # Wait for search page
-                    page.wait_for_selector(CONTAINER_INPUT_SELECTOR, state="visible", timeout=15000)
-                    page.screenshot(path="debug_search_page.png")
-                    
-                    status_placeholder.success("✅ Successfully reached search page!")
-                    return pd.DataFrame(), True
-                    
-                except PlaywrightTimeoutError as e:
-                    status_placeholder.error(f"❌ Failed to reach search page: {e}")
-                    return pd.DataFrame(), False
+
+                # Navigate to Track & Trace main menu
+                page.locator('a[href="/#/track-trace"]').click()                 ### <-- UPDATED
+                page.wait_for_timeout(1000)                                     ### <-- UPDATED
+
+                # Navigate to Search page
+                page.locator('a[href="/#/track-trace/search"]').click()         ### <-- UPDATED
+
+                # Wait for container input box to appear
+                container_box = page.locator("#txContainerInput")               ### <-- UPDATED
+                container_box.wait_for(state="visible", timeout=15000)          ### <-- UPDATED
+
+                page.screenshot(path="debug_search_page.png")                   ### <-- UPDATED
+                status_placeholder.success("✅ Search page loaded")             ### <-- UPDATED
+
+                # Diagnostic: test entering only the first container
+                if container_list:
+                    container_number = container_list[0]
+                    status_placeholder.info(f"🔍 Entering container: {container_number}")  ### <-- UPDATED
+
+                    container_box.fill(container_number)                       ### <-- UPDATED
+
+                    # Click Search button (new stable selector)
+                    page.get_by_role("button", name="Search").click()          ### <-- UPDATED
+
+                    page.wait_for_timeout(4000)                                ### <-- UPDATED
+                    page.screenshot(path="debug_after_search.png")             ### <-- UPDATED
+
+                return pd.DataFrame(), True                                     ### <-- UPDATED
+
+                # -------------------------------
+                # END OF UPDATED SECTION
+                # -------------------------------
+
             else:
-                status_placeholder.error("❌ Login test failed - please check credentials and page structure")
+                status_placeholder.error(
+                    "❌ Login test failed - please check credentials and page structure"
+                )
                 return pd.DataFrame(), False
                 
     except Exception as e:
         status_placeholder.error(f"❌ Browser error: {e}")
         return pd.DataFrame(), False
+
 
 # --- Streamlit UI ---
 st.title("🔍 PortConnect Scraper Diagnostic")
