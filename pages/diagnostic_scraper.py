@@ -62,40 +62,46 @@ def test_login_sequence(page, status_placeholder):
         status_placeholder.success("✅ Home page loaded")
 
         # -----------------------------
-        # 2. Click 'Sign-in/Sign-up'
+        # 2. Click 'Sign‑in / Sign‑up'
         # -----------------------------
-        status_placeholder.info("2. Locating Sign-in/Sign-up link...")
-        
-        sign_in_link = page.get_by_role("link", name="Sign-in/Sign-up")   ### <-- UPDATED
-        sign_in_link.click()                                            ### <-- UPDATED
+        status_placeholder.info("2. Locating Sign‑in / Sign‑up link...")
+
+        # FIXED selector — now matches the real text
+        sign_in_link = page.get_by_role("link", name="Sign-in / Sign-up")   ### <-- UPDATED
+
+        # Fallback: in case spacing differs slightly
+        if not sign_in_link.is_visible():
+            sign_in_link = page.locator("text=Sign-in")                     ### <-- UPDATED
+
+        sign_in_link.click()                                                ### <-- UPDATED
         
         page.wait_for_load_state("networkidle")
         page.screenshot(path="debug_signin_clicked.png")
-
-        status_placeholder.success("✅ Sign-in/Sign-up clicked")
+        status_placeholder.success("✅ Sign-in link clicked")
 
         # -----------------------------
         # 3. Wait for Microsoft B2C Login Page
         # -----------------------------
         status_placeholder.info("3. Waiting for Microsoft B2C login page...")
 
-        email_input = page.get_by_label("Email Address")                ### <-- UPDATED
-        password_input = page.get_by_label("Password")                  ### <-- UPDATED
+        # Robust selectors for Microsoft B2C fields
+        email_input = page.get_by_label("Email Address", exact=False)       ### <-- UPDATED
+        password_input = page.get_by_label("Password", exact=False)         ### <-- UPDATED
 
-        email_input.wait_for(state="visible", timeout=20000)            ### <-- UPDATED
-        password_input.wait_for(state="visible", timeout=20000)         ### <-- UPDATED
+        email_input.wait_for(state="visible", timeout=20000)                ### <-- UPDATED
+        password_input.wait_for(state="visible", timeout=20000)             ### <-- UPDATED
 
-        status_placeholder.success("✅ Login form loaded")
+        status_placeholder.success("✅ Login form detected")
 
         # -----------------------------
-        # 4. Fill in credentials
+        # 4. Fill Credentials
         # -----------------------------
-        status_placeholder.info("4. Filling login form...")
+        status_placeholder.info("4. Filling login credentials...")
 
-        email_input.fill(USERNAME)                                      ### <-- UPDATED
-        password_input.fill(PASSWORD)                                   ### <-- UPDATED
+        email_input.fill(USERNAME)                                          ### <-- UPDATED
+        password_input.fill(PASSWORD)                                       ### <-- UPDATED
+
         page.screenshot(path="debug_form_filled.png")
-
         status_placeholder.success("✅ Credentials entered")
 
         # -----------------------------
@@ -103,26 +109,34 @@ def test_login_sequence(page, status_placeholder):
         # -----------------------------
         status_placeholder.info("5. Submitting login form...")
 
-        page.get_by_role("button", name="Sign in").click()              ### <-- UPDATED
-        page.wait_for_load_state("networkidle")
+        # Microsoft button sometimes appears as “Continue”
+        try:
+            page.get_by_role("button", name="Sign in").click()              ### <-- UPDATED
+        except:
+            page.get_by_role("button", name="Continue").click()             ### <-- UPDATED
 
+        page.wait_for_load_state("networkidle")
         page.screenshot(path="debug_after_submit.png")
 
         # -----------------------------
-        # 6. Validate login success
+        # 6. Validate Login Success
         # -----------------------------
         status_placeholder.info("6. Validating login result...")
-
         page.wait_for_timeout(3000)
-        current_url = page.url
+
+        current_url = page.url.lower()
 
         # Successful login indicators
-        if "/#/home" in current_url.lower() or "track-trace" in current_url.lower():  ### <-- UPDATED
+        if (
+            "/#/home" in current_url
+            or "track-trace" in current_url
+            or "portconnect" in current_url
+        ):                                                                   ### <-- UPDATED
             status_placeholder.success("🎉 Login successful!")
             return True
 
         status_placeholder.warning(f"⚠ Unexpected post-login URL: {current_url}")
-        return True  # Often homepage takes time to fully redirect
+        return False
 
     except Exception as e:
         status_placeholder.error(f"❌ Login error: {e}")
