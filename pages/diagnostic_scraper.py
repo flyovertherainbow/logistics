@@ -49,7 +49,7 @@ def install_playwright():
         return False
 
 def test_login_sequence(page, status_placeholder):
-    """Stable login sequence for the updated PortConnect site (2026)"""
+    """Stable login sequence using correct menu structure and credentials"""
 
     try:
         status_placeholder.info("🔍 Starting login diagnostic...")
@@ -62,76 +62,77 @@ def test_login_sequence(page, status_placeholder):
         status_placeholder.success("✅ Home page loaded")
 
         # -----------------------------
-        # 2. Click 'Sign‑in / Sign‑up'
+        # 2. Click 'Sign-in/Sign-up' dropdown
         # -----------------------------
-        status_placeholder.info("2. Locating Sign‑in / Sign‑up link...")
+        status_placeholder.info("2. Opening Sign-in/Sign-up menu...")
 
-        # FIXED selector — now matches the real text
-        sign_in_link = page.get_by_role("link", name="Sign-in / Sign-up")   ### <-- UPDATED
+        # This is the top-right menu (NOT the login button yet)
+        dropdown_link = page.get_by_role("link", name="Sign-in/Sign-up")   ### <-- UPDATED
+        dropdown_link.click()                                              ### <-- UPDATED
 
-        # Fallback: in case spacing differs slightly
-        if not sign_in_link.is_visible():
-            sign_in_link = page.locator("text=Sign-in")                     ### <-- UPDATED
+        page.wait_for_timeout(500)
+        page.screenshot(path="debug_dropdown_opened.png")
 
-        sign_in_link.click()                                                ### <-- UPDATED
-        
+        # -----------------------------
+        # 3. Click actual "Sign-in" item inside dropdown
+        # -----------------------------
+        status_placeholder.info("3. Clicking Sign-in inside dropdown...")
+
+        login_item = page.get_by_role("link", name="Sign-in")              ### <-- UPDATED
+        login_item.click()                                                 ### <-- UPDATED
+
         page.wait_for_load_state("networkidle")
         page.screenshot(path="debug_signin_clicked.png")
-        status_placeholder.success("✅ Sign-in link clicked")
+
+        status_placeholder.success("✅ Sign-in redirect triggered")
 
         # -----------------------------
-        # 3. Wait for Microsoft B2C Login Page
+        # 4. Wait for Microsoft Login Form
         # -----------------------------
-        status_placeholder.info("3. Waiting for Microsoft B2C login page...")
+        status_placeholder.info("4. Waiting for Microsoft B2C login page...")
 
-        # Robust selectors for Microsoft B2C fields
-        email_input = page.get_by_label("Email Address", exact=False)       ### <-- UPDATED
-        password_input = page.get_by_label("Password", exact=False)         ### <-- UPDATED
+        email_input = page.get_by_label("Email Address")                   ### <-- UPDATED
+        password_input = page.get_by_label("Password")                     ### <-- UPDATED
 
-        email_input.wait_for(state="visible", timeout=20000)                ### <-- UPDATED
-        password_input.wait_for(state="visible", timeout=20000)             ### <-- UPDATED
+        email_input.wait_for(state="visible", timeout=20000)
+        password_input.wait_for(state="visible", timeout=20000)
 
         status_placeholder.success("✅ Login form detected")
 
         # -----------------------------
-        # 4. Fill Credentials
+        # 5. Fill user credentials
         # -----------------------------
-        status_placeholder.info("4. Filling login credentials...")
+        status_placeholder.info("5. Filling credentials...")
 
-        email_input.fill(USERNAME)                                          ### <-- UPDATED
-        password_input.fill(PASSWORD)                                       ### <-- UPDATED
+        email_input.fill(USERNAME)                                         ### <-- UPDATED
+        password_input.fill(PASSWORD)                                      ### <-- UPDATED
 
         page.screenshot(path="debug_form_filled.png")
         status_placeholder.success("✅ Credentials entered")
 
         # -----------------------------
-        # 5. Click Sign In
+        # 6. Submit the form
         # -----------------------------
-        status_placeholder.info("5. Submitting login form...")
+        status_placeholder.info("6. Submitting login form...")
 
-        # Microsoft button sometimes appears as “Continue”
-        try:
-            page.get_by_role("button", name="Sign in").click()              ### <-- UPDATED
-        except:
-            page.get_by_role("button", name="Continue").click()             ### <-- UPDATED
-
+        page.get_by_role("button", name="Sign in").click()                 ### <-- UPDATED
         page.wait_for_load_state("networkidle")
+
         page.screenshot(path="debug_after_submit.png")
 
         # -----------------------------
-        # 6. Validate Login Success
+        # 7. Validate login success
         # -----------------------------
-        status_placeholder.info("6. Validating login result...")
-        page.wait_for_timeout(3000)
+        status_placeholder.info("7. Validating login result...")
 
+        page.wait_for_timeout(3000)
         current_url = page.url.lower()
 
-        # Successful login indicators
         if (
             "/#/home" in current_url
             or "track-trace" in current_url
             or "portconnect" in current_url
-        ):                                                                   ### <-- UPDATED
+        ):                                                                  ### <-- UPDATED
             status_placeholder.success("🎉 Login successful!")
             return True
 
