@@ -48,99 +48,53 @@ def install_playwright():
         st.error(f"Playwright installation failed: {e}")
         return False
 
-def test_login_sequence(page, status_placeholder):
-    """Stable login sequence using correct menu structure and credentials"""
+def test_login_sequence(page, status):
+    """Diagnostic login tester — NO Search button clicks in this function"""
 
     try:
-        status_placeholder.info("🔍 Starting login diagnostic...")
+        status.info("1. Navigating to PortConnect...")
+        page.goto(PORTCONNECT_URL, wait_until="load")
 
-        # -----------------------------
-        # 1. Load Home Page
-        # -----------------------------
-        page.goto(PORTCONNECT_URL, wait_until="load", timeout=30000)
-        page.screenshot(path="debug_home_page.png")
-        status_placeholder.success("✅ Home page loaded")
+        status.info("2. Clicking Sign-in/Sign-up dropdown...")
+        page.click("#navbar > ul.nav.navbar-top-links.navbar-right > li > a")
 
-        # -----------------------------
-        # 2. Click 'Sign-in/Sign-up' dropdown
-        # -----------------------------
-        status_placeholder.info("2. Opening Sign-in/Sign-up menu...")
+        status.info("3. Clicking Sign-in link...")
+        page.click("#navbar > ul.nav.navbar-top-links.navbar-right > li > ul > li:nth-child(1) > a")
 
-        # This is the top-right menu (NOT the login button yet)
-        dropdown_link = page.get_by_role("link", name="Sign-in/Sign-up")   ### <-- UPDATED
-        dropdown_link.click()                                              ### <-- UPDATED
+        # Azure B2C login
+        page.wait_for_selector("#signInName", timeout=15000)
+        status.info("4. Entering credentials...")
+        page.fill("#signInName", USERNAME)
+        page.fill("#password", PASSWORD)
 
-        page.wait_for_timeout(500)
-        page.screenshot(path="debug_dropdown_opened.png")
+        status.info("5. Submitting login form...")
+        page.click("#next")
+        page.wait_for_timeout(6000)
 
-        # -----------------------------
-        # 3. Click actual "Sign-in" item inside dropdown
-        # -----------------------------
-        status_placeholder.info("3. Clicking Sign-in inside dropdown...")
+        current_url = page.url
+        status.write(f"🔍 URL after login: {current_url}")
+        status.write(f"📄 Page title: {page.title()}")
+        status.text_area("Page snippet:", page.inner_text("body")[:1000])
 
-        login_item = page.get_by_role("link", name="Sign-in")              ### <-- UPDATED
-        login_item.click()                                                 ### <-- UPDATED
+        # Optional: Keep me signed in
+        if page.locator("text=Keep me signed in").is_visible():
+            status.info("Selecting 'Yes' on Keep Me Signed In")
+            page.click("text=Yes")
+            page.wait_for_timeout(3000)
 
-        page.wait_for_load_state("networkidle")
-        page.screenshot(path="debug_signin_clicked.png")
+        if "Incorrect username" in page.inner_text("body"):
+            status.error("❌ Wrong username or password")
+            return False
 
-        status_placeholder.success("✅ Sign-in redirect triggered")
-
-        # -----------------------------
-        # 4. Wait for Microsoft Login Form
-        # -----------------------------
-        status_placeholder.info("4. Waiting for Microsoft B2C login page...")
-
-        email_input = page.get_by_label("Email Address")                   ### <-- UPDATED
-        password_input = page.get_by_label("Password")                     ### <-- UPDATED
-
-        email_input.wait_for(state="visible", timeout=20000)
-        password_input.wait_for(state="visible", timeout=20000)
-
-        status_placeholder.success("✅ Login form detected")
-
-        # -----------------------------
-        # 5. Fill user credentials
-        # -----------------------------
-        status_placeholder.info("5. Filling credentials...")
-
-        email_input.fill(USERNAME)                                         ### <-- UPDATED
-        password_input.fill(PASSWORD)                                      ### <-- UPDATED
-
-        page.screenshot(path="debug_form_filled.png")
-        status_placeholder.success("✅ Credentials entered")
-
-        # -----------------------------
-        # 6. Submit the form
-        # -----------------------------
-        status_placeholder.info("6. Submitting login form...")
-
-        page.get_by_role("button", name="Sign in").click()                 ### <-- UPDATED
-        page.wait_for_load_state("networkidle")
-
-        page.screenshot(path="debug_after_submit.png")
-
-        # -----------------------------
-        # 7. Validate login success
-        # -----------------------------
-        status_placeholder.info("7. Validating login result...")
-
-        page.wait_for_timeout(3000)
-        current_url = page.url.lower()
-
-        if (
-            "/#/home" in current_url
-            or "track-trace" in current_url
-            or "portconnect" in current_url
-        ):                                                                  ### <-- UPDATED
-            status_placeholder.success("🎉 Login successful!")
+        if "portconnect.co.nz" in current_url.lower():
+            status.success("✅ Login successful")
             return True
 
-        status_placeholder.warning(f"⚠ Unexpected post-login URL: {current_url}")
+        status.warning("⚠️ Login unclear — still on unknown page")
         return False
 
     except Exception as e:
-        status_placeholder.error(f"❌ Login error: {e}")
+        status.error(f"🚨 Login sequence error: {e}")
         return False
 
 
