@@ -211,19 +211,13 @@ def run_diagnostic_scraper(container_list, status_placeholder):
                 # -------------------------------
                 # NAVIGATION: Track & Trace → Search
                 # -------------------------------
-                status_placeholder.info("7. Opening Track & Trace dropdown...")
+                status_placeholder.info("7. Navigating directly to Track & Trace Search page...")
 
-                # Step 1: Click the Track and Trace dropdown toggle to open the menu
-                page.locator('a[data-toggle="dropdown"][href="/#/track-trace"]').click()
+                # Navigate directly to the search URL — avoids navbar dropdown click
+                page.goto("https://www.portconnect.co.nz/#/track-trace/search", wait_until="load")
 
-                # Step 2: Wait for the Search link to become visible in the dropdown
-                search_nav_link = page.locator('a[href="/#/track-trace/search"]')
-                search_nav_link.wait_for(state="visible", timeout=5000)
-                status_placeholder.info("8. Clicking Search in dropdown menu...")
-                search_nav_link.click()
-
-                # Step 3: Wait for the search page URL and container input to load
-                page.wait_for_url("**/track-trace/search**", timeout=10000)
+                # Wait for the search page and container input to load
+                page.wait_for_url("**/track-trace/search**", timeout=15000)
                 container_box = page.locator("#txContainerInput")
                 container_box.wait_for(state="visible", timeout=15000)
 
@@ -350,6 +344,8 @@ if st.button("Refresh Screenshots"):
             st.image("debug_after_submit.png", caption="After Login Submit")
     except:
         st.info("Screenshots not available yet - run the diagnostic first")
+
+
 
 
 
