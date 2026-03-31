@@ -56,13 +56,6 @@ def test_login_sequence(page, status):
         status.info("1. Navigating to PortConnect...")
         page.goto(PORTCONNECT_URL, wait_until="load")
 
-        # Check if already logged in — portal is loaded and no B2C redirect occurred
-        current_url = page.url
-        if "portconnect.co.nz" in current_url and "b2clogin.com" not in current_url:
-            if not page.locator("#signInName").is_visible():
-                status.success("✅ Already logged in — skipping login steps.")
-                return True
-
         status.info("2. Clicking Sign-in/Sign-up dropdown...")
         page.click("#navbar > ul.nav.navbar-top-links.navbar-right > li > a")
 
@@ -213,17 +206,11 @@ def run_diagnostic_scraper(container_list, status_placeholder):
                 # -------------------------------
                 status_placeholder.info("7. Navigating to Track & Trace Search page...")
 
-                # Use JS hash navigation — stays inside the running Angular app,
-                # avoids a full page reload that would re-trigger route guards
-                page.evaluate("window.location.hash = '#/track-trace/search'")
-
-                # Wait for Angular router to finish all transitions (including guard redirects)
-                page.wait_for_url("**/track-trace/search**", timeout=15000)
-                page.wait_for_load_state("networkidle", timeout=15000)
+                # Navigate directly — session cookie is live so route guard will pass
+                page.goto("https://www.portconnect.co.nz/#/track-trace/search", wait_until="networkidle", timeout=20000)
 
                 container_box = page.locator("#txContainerInput")
                 container_box.wait_for(state="visible", timeout=15000)
-                page.wait_for_timeout(1500)  # Let Angular finish rendering the form
 
                 page.screenshot(path="debug_search_page.png")
                 status_placeholder.success("✅ Search page loaded")
@@ -367,6 +354,8 @@ if st.button("Refresh Screenshots"):
             st.image("debug_after_submit.png", caption="After Login Submit")
     except:
         st.info("Screenshots not available yet - run the diagnostic first")
+
+
 
 
 
