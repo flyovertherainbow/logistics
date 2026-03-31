@@ -230,8 +230,16 @@ def run_diagnostic_scraper(container_list, status_placeholder):
                     status_placeholder.info(f"🔍 Entering {len(container_list)} container(s)...")
                     container_box.fill(containers_text)
 
-                    # Click Search button — scoped to form button group to avoid nav ambiguity
-                    page.locator("div.search-item-button").get_by_role("button", name="Search", exact=True).click()
+                    # Trigger Angular change detection — fill() alone doesn't fire ng model events
+                    container_box.dispatch_event("input")
+                    container_box.dispatch_event("change")
+                    page.wait_for_timeout(800)  # Wait for Angular to finish re-rendering
+
+                    # Click Search — re-locate after re-render, use CSS selector directly
+                    search_btn = page.locator("div.search-item-button button.btn-primary").first
+                    search_btn.wait_for(state="visible", timeout=10000)
+                    search_btn.scroll_into_view_if_needed()
+                    search_btn.click()
 
                     # Wait for results table to populate
                     page.wait_for_selector("table tbody tr", timeout=15000)
@@ -344,6 +352,8 @@ if st.button("Refresh Screenshots"):
             st.image("debug_after_submit.png", caption="After Login Submit")
     except:
         st.info("Screenshots not available yet - run the diagnostic first")
+
+
 
 
 
