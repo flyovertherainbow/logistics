@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import json
+import os
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 import subprocess
 import sys
@@ -8,9 +9,11 @@ import time
 
 # --- Configuration ---
 PORTCONNECT_URL = "https://www.portconnect.co.nz/#/home"
+SEARCH_URL = "https://www.portconnect.co.nz/#/track-trace/search"
 USERNAME = "importdoc@ecly.co.nz"
 PASSWORD = "Import261!!"
 CONTAINER_INPUT_SELECTOR = "#txContainerInput"
+SESSION_FILE = "/tmp/portconnect_session.json"
 
 # --- Diagnostic Mode ---
 IS_STREAMLIT_CLOUD = st.runtime.exists() if hasattr(st, 'runtime') else False
@@ -54,7 +57,12 @@ def test_login_sequence(page, status):
 
     try:
         status.info("1. Navigating to PortConnect...")
-        page.goto(PORTCONNECT_URL, wait_until="load")
+        page.goto(PORTCONNECT_URL, wait_until="networkidle", timeout=20000)
+
+        # Check if session is still valid — look for authenticated nav elements
+        if page.locator("#pc-menu").is_visible() and "b2clogin.com" not in page.url:
+            status.success("✅ Session restored — already logged in.")
+            return True
 
         status.info("2. Clicking Sign-in/Sign-up dropdown...")
         page.click("#navbar > ul.nav.navbar-top-links.navbar-right > li > a")
@@ -190,15 +198,28 @@ def run_diagnostic_scraper(container_list, status_placeholder):
         with sync_playwright() as p:
             # Launch browser
             browser = p.chromium.launch(
-                headless=True,  # Always headless for diagnostic
+                headless=True,
                 args=['--no-sandbox', '--disable-dev-shm-usage'] if IS_STREAMLIT_CLOUD else []
             )
-            page = browser.new_page(viewport={"width": 1920, "height": 1080})
-            
-            # Test login
+
+            # Restore saved session if available
+            if os.path.exists(SESSION_FILE):
+                status_placeholder.info("🔑 Restoring saved session...")
+                context = browser.new_context(
+                    storage_state=SESSION_FILE,
+                    viewport={"width": 1920, "height": 1080}
+                )
+            else:
+                context = browser.new_context(viewport={"width": 1920, "height": 1080})
+
+            page = context.new_page()
+
+            # Test login (will skip if session is valid)
             login_success = test_login_sequence(page, status_placeholder)
-            
+
             if login_success:
+                # Save session after successful login for reuse
+                context.storage_state(path=SESSION_FILE)
                 status_placeholder.success("🎉 Login test passed!")
                 
                 # -------------------------------
@@ -354,6 +375,8 @@ if st.button("Refresh Screenshots"):
             st.image("debug_after_submit.png", caption="After Login Submit")
     except:
         st.info("Screenshots not available yet - run the diagnostic first")
+
+
 
 
 
