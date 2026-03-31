@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import json
-import os
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 import subprocess
 import sys
@@ -9,11 +8,9 @@ import time
 
 # --- Configuration ---
 PORTCONNECT_URL = "https://www.portconnect.co.nz/#/home"
-SEARCH_URL = "https://www.portconnect.co.nz/#/track-trace/search"
 USERNAME = "importdoc@ecly.co.nz"
 PASSWORD = "Import261!!"
 CONTAINER_INPUT_SELECTOR = "#txContainerInput"
-SESSION_FILE = "/tmp/portconnect_session.json"
 
 # --- Diagnostic Mode ---
 IS_STREAMLIT_CLOUD = st.runtime.exists() if hasattr(st, 'runtime') else False
@@ -57,12 +54,7 @@ def test_login_sequence(page, status):
 
     try:
         status.info("1. Navigating to PortConnect...")
-        page.goto(PORTCONNECT_URL, wait_until="networkidle", timeout=20000)
-
-        # Check if session is still valid — look for authenticated nav elements
-        if page.locator("#pc-menu").is_visible() and "b2clogin.com" not in page.url:
-            status.success("✅ Session restored — already logged in.")
-            return True
+        page.goto(PORTCONNECT_URL, wait_until="load")
 
         status.info("2. Clicking Sign-in/Sign-up dropdown...")
         page.click("#navbar > ul.nav.navbar-top-links.navbar-right > li > a")
@@ -201,25 +193,12 @@ def run_diagnostic_scraper(container_list, status_placeholder):
                 headless=True,
                 args=['--no-sandbox', '--disable-dev-shm-usage'] if IS_STREAMLIT_CLOUD else []
             )
+            page = browser.new_page(viewport={"width": 1920, "height": 1080})
 
-            # Restore saved session if available
-            if os.path.exists(SESSION_FILE):
-                status_placeholder.info("🔑 Restoring saved session...")
-                context = browser.new_context(
-                    storage_state=SESSION_FILE,
-                    viewport={"width": 1920, "height": 1080}
-                )
-            else:
-                context = browser.new_context(viewport={"width": 1920, "height": 1080})
-
-            page = context.new_page()
-
-            # Test login (will skip if session is valid)
+            # Login every run — fresh browser has no session
             login_success = test_login_sequence(page, status_placeholder)
 
             if login_success:
-                # Save session after successful login for reuse
-                context.storage_state(path=SESSION_FILE)
                 status_placeholder.success("🎉 Login test passed!")
                 
                 # -------------------------------
@@ -261,11 +240,9 @@ def run_diagnostic_scraper(container_list, status_placeholder):
                     search_btn.scroll_into_view_if_needed()
                     search_btn.click()
 
-                    # Wait for DataTables to show actual results
-                    page.wait_for_function(
-                        "document.querySelector('.dataTables_info') && document.querySelector('.dataTables_info').innerText.includes('Showing 1')",
-                        timeout=20000
-                    )
+                    # Wait for results — networkidle means Angular + DataTables have finished rendering
+                    page.wait_for_load_state("networkidle", timeout=20000)
+                    page.wait_for_timeout(1000)  # Extra settle for DataTables row insertion
                     page.screenshot(path="debug_after_search.png")
                     status_placeholder.success("✅ Results loaded")
 
@@ -375,6 +352,8 @@ if st.button("Refresh Screenshots"):
             st.image("debug_after_submit.png", caption="After Login Submit")
     except:
         st.info("Screenshots not available yet - run the diagnostic first")
+
+
 
 
 
