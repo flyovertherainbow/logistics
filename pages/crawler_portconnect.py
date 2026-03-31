@@ -211,15 +211,19 @@ def run_diagnostic_scraper(container_list, status_placeholder):
                 # -------------------------------
                 # NAVIGATION: Track & Trace → Search
                 # -------------------------------
-                status_placeholder.info("7. Navigating directly to Track & Trace Search page...")
+                status_placeholder.info("7. Navigating to Track & Trace Search page...")
 
-                # Navigate directly to the search URL — avoids navbar dropdown click
-                page.goto("https://www.portconnect.co.nz/#/track-trace/search", wait_until="load")
+                # Use JS hash navigation — stays inside the running Angular app,
+                # avoids a full page reload that would re-trigger route guards
+                page.evaluate("window.location.hash = '#/track-trace/search'")
 
-                # Wait for the search page and container input to load
+                # Wait for Angular router to finish all transitions (including guard redirects)
                 page.wait_for_url("**/track-trace/search**", timeout=15000)
+                page.wait_for_load_state("networkidle", timeout=15000)
+
                 container_box = page.locator("#txContainerInput")
                 container_box.wait_for(state="visible", timeout=15000)
+                page.wait_for_timeout(1500)  # Let Angular finish rendering the form
 
                 page.screenshot(path="debug_search_page.png")
                 status_placeholder.success("✅ Search page loaded")
@@ -229,21 +233,27 @@ def run_diagnostic_scraper(container_list, status_placeholder):
                     containers_text = ",".join(container_list)
                     status_placeholder.info(f"🔍 Entering {len(container_list)} container(s)...")
 
-                    # Click to focus, clear, then type character-by-character
-                    # — fill() bypasses Angular reactive form events; type() fires proper keydown/input/keyup
-                    container_box.click()
-                    container_box.select_text()
-                    container_box.type(containers_text, delay=30)
-                    page.wait_for_timeout(1000)  # Wait for Angular form validation to settle
+                    # Set value via JS and dispatch Angular-compatible events
+                    page.evaluate(
+                        """(args) => {
+                            const el = document.querySelector('#txContainerInput');
+                            const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+                                window.HTMLTextAreaElement.prototype, 'value').set;
+                            nativeInputValueSetter.call(el, args.value);
+                            el.dispatchEvent(new Event('input', { bubbles: true }));
+                            el.dispatchEvent(new Event('change', { bubbles: true }));
+                        }""",
+                        {"value": containers_text}
+                    )
+                    page.wait_for_timeout(1000)  # Wait for Angular form validation
 
-                    # Re-locate Search button fresh after Angular re-render
+                    # Re-locate Search button fresh and click
                     search_btn = page.locator("div.search-item-button button.btn-primary").first
                     search_btn.wait_for(state="visible", timeout=10000)
                     search_btn.scroll_into_view_if_needed()
                     search_btn.click()
 
-                    # Wait for the DataTables info text to show actual results (not loading/empty state)
-                    # "Showing 1 to" appears only when rows are returned
+                    # Wait for DataTables to show actual results
                     page.wait_for_function(
                         "document.querySelector('.dataTables_info') && document.querySelector('.dataTables_info').innerText.includes('Showing 1')",
                         timeout=20000
@@ -357,6 +367,8 @@ if st.button("Refresh Screenshots"):
             st.image("debug_after_submit.png", caption="After Login Submit")
     except:
         st.info("Screenshots not available yet - run the diagnostic first")
+
+
 
 
 
