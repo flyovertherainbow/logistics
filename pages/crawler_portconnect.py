@@ -268,14 +268,18 @@ if st.button("Run Diagnostic Test"):
                 st.markdown(f"### 📋 Results — {len(container_groups)} container(s) found")
 
                 all_data = {}
+
+                # --- Tables section ---
                 for container_num, group_df in container_groups.items():
                     st.markdown(f"---\n#### 📦 {container_num}")
                     st.dataframe(group_df, use_container_width=True)
+                    all_data[container_num] = group_df.to_dict(orient="records")
 
-                    records = group_df.to_dict(orient="records")
-                    all_data[container_num] = records
-
-                    st.markdown(f"**JSON — {container_num}**")
+                # --- JSON section at the bottom ---
+                st.markdown("---")
+                st.markdown("### 🗂️ JSON Results")
+                for container_num, records in all_data.items():
+                    st.markdown(f"**{container_num}**")
                     st.json(records)
                     st.download_button(
                         label=f"⬇️ Download {container_num}.json",
@@ -317,6 +321,8 @@ if st.button("Refresh Screenshots"):
             st.image("debug_after_submit.png", caption="After Login Submit")
     except:
         st.info("Screenshots not available yet - run the diagnostic first")
+
+
 
 
 
