@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import json
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 import subprocess
 import sys
@@ -113,6 +114,51 @@ def test_login_sequence(page, status):
         status.error(f"🚨 Unexpected error: {e}")
         return False
 
+def scrape_results_table(page, status):
+    """Scrape both results tables from the Track & Trace search page and return as a list of dicts.
+
+    The page uses an Angular responsive DataTable where each <td> contains:
+        <span class="sm-label">FieldName</span>
+        <span class="sm-value">Value</span>
+    so we read label/value pairs per cell rather than using thead column order.
+    """
+    records = []
+
+    # Each results section is wrapped in div.panel.panel-default
+    sections = page.locator("div.panel.panel-default").all()
+    for section in sections:
+        # Section heading (e.g. "Imports and Arriving Transhipments")
+        try:
+            section_title = section.locator("h3, h4, .panel-title").first.inner_text().strip()
+        except Exception:
+            section_title = "Unknown"
+
+        rows = section.locator("tbody tr").all()
+        for row in rows:
+            cells = row.locator("td").all()
+            if not cells:
+                continue
+
+            record = {"section": section_title}
+            has_data = False
+            for cell in cells:
+                # Each td has a sm-label + sm-value pair inside
+                label_el = cell.locator("span.sm-label")
+                value_el = cell.locator("span.sm-value")
+                if label_el.count() > 0 and value_el.count() > 0:
+                    label = label_el.first.inner_text().strip()
+                    value = value_el.first.inner_text().strip()
+                    if label:
+                        record[label] = value
+                        has_data = True
+
+            if has_data:
+                records.append(record)
+
+    status.info(f"📊 Scraped {len(records)} row(s) across all sections")
+    return records
+
+
 def run_diagnostic_scraper(container_list, status_placeholder):
     """Run diagnostic version of scraper"""
     if not install_playwright():
@@ -157,7 +203,7 @@ def run_diagnostic_scraper(container_list, status_placeholder):
 
                 # Step 4: Enter all container numbers and search
                 if container_list:
-                    containers_text = "\n".join(container_list)
+                    containers_text = ",".join(container_list)
                     status_placeholder.info(f"🔍 Entering {len(container_list)} container(s)...")
                     container_box.fill(containers_text)
 
@@ -168,6 +214,11 @@ def run_diagnostic_scraper(container_list, status_placeholder):
                     page.wait_for_selector("table tbody tr", timeout=15000)
                     page.screenshot(path="debug_after_search.png")
                     status_placeholder.success("✅ Results loaded")
+
+                    # Scrape both results tables
+                    records = scrape_results_table(page, status_placeholder)
+                    df = pd.DataFrame(records)
+                    return df, True
 
                 return pd.DataFrame(), True
 
@@ -191,8 +242,8 @@ st.title("🔍 PortConnect Scraper Diagnostic")
 st.markdown("This diagnostic tool will help identify login and scraping issues.")
 
 # Input containers
-container_input = st.text_area("Container Numbers (one per line):", height=100)
-container_list = [c.strip() for c in container_input.split('\n') if c.strip()]
+container_input = st.text_area("Container Numbers (comma-separated, e.g. MSKU1234567, SUDU7654722):", height=80)
+container_list = [c.strip() for c in container_input.split(',') if c.strip()]
 
 # Status placeholder
 status_placeholder = st.empty()
@@ -203,6 +254,49 @@ if st.button("Run Diagnostic Test"):
         df, success = run_diagnostic_scraper(container_list, status_placeholder)
         if success:
             st.success("🎉 Diagnostic completed successfully!")
+            if not df.empty:
+                # Group results by container number
+                container_col = "Container" if "Container" in df.columns else None
+
+                if container_col:
+                    grouped = df.groupby(container_col, sort=False)
+                    container_groups = {name: group.drop(columns=[container_col]) for name, group in grouped}
+                else:
+                    # Fallback: treat all results as one group
+                    container_groups = {"All Results": df}
+
+                st.markdown(f"### 📋 Results — {len(container_groups)} container(s) found")
+
+                all_data = {}
+                for container_num, group_df in container_groups.items():
+                    st.markdown(f"---\n#### 📦 {container_num}")
+                    st.dataframe(group_df, use_container_width=True)
+
+                    records = group_df.to_dict(orient="records")
+                    all_data[container_num] = records
+
+                    st.markdown(f"**JSON — {container_num}**")
+                    st.json(records)
+                    st.download_button(
+                        label=f"⬇️ Download {container_num}.json",
+                        data=json.dumps(records, indent=2),
+                        file_name=f"{container_num}.json",
+                        mime="application/json",
+                        key=f"dl_{container_num}",
+                    )
+
+                # Combined download for all containers
+                if len(all_data) > 1:
+                    st.markdown("---")
+                    st.download_button(
+                        label="⬇️ Download All Containers (combined JSON)",
+                        data=json.dumps(all_data, indent=2),
+                        file_name="portconnect_results_all.json",
+                        mime="application/json",
+                        key="dl_all",
+                    )
+            else:
+                st.info("No results returned for the given container(s).")
             st.balloons()
         else:
             st.error("❌ Diagnostic failed - check the status messages above")
@@ -223,6 +317,8 @@ if st.button("Refresh Screenshots"):
             st.image("debug_after_submit.png", caption="After Login Submit")
     except:
         st.info("Screenshots not available yet - run the diagnostic first")
+
+
 
 
 
