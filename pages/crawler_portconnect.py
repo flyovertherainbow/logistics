@@ -139,6 +139,9 @@ def scrape_results_table(page, status):
 
         rows = section.locator("tbody tr").all()
         for row in rows:
+            # Skip rows hidden by responsive CSS (duplicate mobile layout)
+            if not row.is_visible():
+                continue
             cells = row.locator("td").all()
             if not cells:
                 continue
@@ -340,6 +343,8 @@ if st.button("Refresh Screenshots"):
             st.image("debug_after_submit.png", caption="After Login Submit")
     except:
         st.info("Screenshots not available yet - run the diagnostic first")
+
+
 
 
 
