@@ -115,23 +115,27 @@ def test_login_sequence(page, status):
         return False
 
 def scrape_results_table(page, status):
-    """Scrape both results tables from the Track & Trace search page and return as a list of dicts.
+    """Scrape both results tables from the Track & Trace search page.
 
-    The page uses an Angular responsive DataTable where each <td> contains:
-        <span class="sm-label">FieldName</span>
-        <span class="sm-value">Value</span>
-    so we read label/value pairs per cell rather than using thead column order.
+    Primary strategy: read column headers from <thead th>, map to <tbody td> text.
+    Fallback: read all span.sm-label / span.sm-value pairs within each row
+    (used when the responsive layout collapses columns into a single cell).
     """
     records = []
 
-    # Each results section is wrapped in div.panel.panel-default
     sections = page.locator("div.panel.panel-default").all()
     for section in sections:
-        # Section heading (e.g. "Imports and Arriving Transhipments")
         try:
             section_title = section.locator("h3, h4, .panel-title").first.inner_text().strip()
         except Exception:
             section_title = "Unknown"
+
+        # Build header list from thead, stripping sort-icon whitespace
+        header_els = section.locator("thead th").all()
+        headers = []
+        for th in header_els:
+            text = th.inner_text().strip().replace("\n", " ").strip()
+            headers.append(text)
 
         rows = section.locator("tbody tr").all()
         for row in rows:
@@ -141,13 +145,28 @@ def scrape_results_table(page, status):
 
             record = {"section": section_title}
             has_data = False
-            for cell in cells:
-                # Each td has a sm-label + sm-value pair inside
-                label_el = cell.locator("span.sm-label")
-                value_el = cell.locator("span.sm-value")
-                if label_el.count() > 0 and value_el.count() > 0:
-                    label = label_el.first.inner_text().strip()
-                    value = value_el.first.inner_text().strip()
+
+            if headers:
+                # Desktop layout: one value per <td>, mapped by header position
+                for i, cell in enumerate(cells):
+                    if i >= len(headers):
+                        break
+                    header = headers[i]
+                    if not header or header.lower() == "detail":
+                        continue
+                    # Prefer sm-value span if present, otherwise full cell text
+                    value_el = cell.locator("span.sm-value")
+                    value = value_el.first.inner_text().strip() if value_el.count() > 0 else cell.inner_text().strip()
+                    if value:
+                        record[header] = value
+                        has_data = True
+            else:
+                # Responsive fallback: all sm-label/sm-value pairs anywhere in the row
+                label_els = row.locator("span.sm-label").all()
+                value_els = row.locator("span.sm-value").all()
+                for lbl, val in zip(label_els, value_els):
+                    label = lbl.inner_text().strip()
+                    value = val.inner_text().strip()
                     if label:
                         record[label] = value
                         has_data = True
@@ -171,7 +190,7 @@ def run_diagnostic_scraper(container_list, status_placeholder):
                 headless=True,  # Always headless for diagnostic
                 args=['--no-sandbox', '--disable-dev-shm-usage'] if IS_STREAMLIT_CLOUD else []
             )
-            page = browser.new_page()
+            page = browser.new_page(viewport={"width": 1920, "height": 1080})
             
             # Test login
             login_success = test_login_sequence(page, status_placeholder)
@@ -321,6 +340,8 @@ if st.button("Refresh Screenshots"):
             st.image("debug_after_submit.png", caption="After Login Submit")
     except:
         st.info("Screenshots not available yet - run the diagnostic first")
+
+
 
 
 
