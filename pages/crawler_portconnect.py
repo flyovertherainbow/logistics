@@ -48,120 +48,69 @@ def install_playwright():
         st.error(f"Playwright installation failed: {e}")
         return False
 
-def test_login_sequence(page, status_placeholder):
-    """Test login sequence with detailed diagnostics"""
+def test_login_sequence(page, status):
+    """Diagnostic login tester based on your working automate_login() function"""
+
     try:
-        status_placeholder.info("🔍 Starting login diagnostic...")
-        
-        # Step 1: Navigate to home page
-        status_placeholder.info("1. Navigating to PortConnect home page...")
-        page.goto(PORTCONNECT_URL, wait_until="load", timeout=30000)
-        
-        # Take screenshot of initial page
-        page.screenshot(path="debug_home_page.png")
-        status_placeholder.success("✅ Home page loaded")
-        
-        # Step 2: Check for login dropdown
-        DROPDOWN_SELECTOR = "#navbar > ul.nav.navbar-top-links.navbar-right > li > a"
-        status_placeholder.info("2. Looking for login dropdown...")
-        
-        try:
-            dropdown = page.wait_for_selector(DROPDOWN_SELECTOR, state="visible", timeout=10000)
-            status_placeholder.success("✅ Login dropdown found")
-            dropdown.click()
-            page.screenshot(path="debug_dropdown_opened.png")
-        except PlaywrightTimeoutError:
-            status_placeholder.error("❌ Login dropdown not found - page structure may have changed")
-            # Check what's actually on the page
-            page_content = page.content()
-            if "login" in page_content.lower():
-                status_placeholder.info("Found 'login' text in page content")
-            if "sign in" in page_content.lower():
-                status_placeholder.info("Found 'sign in' text in page content")
+        status.info("1. Navigating to PortConnect...")
+        page.goto(PORTCONNECT_URL, wait_until="load")
+
+        status.info("2. Clicking Sign-in/Sign-up dropdown...")
+        page.click("#navbar > ul.nav.navbar-top-links.navbar-right > li > a")
+
+        status.info("3. Clicking Sign-in link...")
+        page.click("#navbar > ul.nav.navbar-top-links.navbar-right > li > ul > li:nth-child(1) > a")
+
+        status.info("4. Waiting for Azure B2C login page...")
+        page.wait_for_selector("#signInName", timeout=15000)
+
+        status.info("5. Entering username & password...")
+        page.fill("#signInName", USERNAME)
+        page.fill("#password", PASSWORD)
+
+        status.info("6. Submitting login form...")
+        page.click("#next")
+        page.wait_for_timeout(6000)
+
+        # Log current state
+        current_url = page.url
+        page_title = page.title()
+        page_body = page.inner_text("body")[:1000]
+
+        status.write(f"🔍 URL after login: {current_url}")
+        status.write(f"📄 Page title: {page_title}")
+        status.text_area("🔍 Page content snapshot:", page_body)
+
+        # Handle "Keep me signed in"
+        if page.locator("text=Keep me signed in").is_visible():
+            status.info("🔄 'Keep me signed in' detected — clicking Yes...")
+            page.click("text=Yes")
+            page.wait_for_timeout(3000)
+
+        # Detect login success/failure
+        if page.locator("text=Incorrect username or password").is_visible():
+            status.error("❌ Login failed: Incorrect username or password.")
             return False
-        
-        # Step 3: Click sign in link
-        SIGN_IN_LINK_SELECTOR = "#navbar > ul.nav.navbar-top-links.navbar-right > li > ul > li:nth-child(1) > a"
-        status_placeholder.info("3. Clicking sign in link...")
-        
-        try:
-            sign_in_link = page.wait_for_selector(SIGN_IN_LINK_SELECTOR, state="visible", timeout=10000)
-            status_placeholder.success("✅ Sign in link found")
-            sign_in_link.click()
-            page.screenshot(path="debug_sign_in_clicked.png")
-        except PlaywrightTimeoutError:
-            status_placeholder.error("❌ Sign in link not found")
+
+        # Successful redirect
+        if "portconnect.co.nz" in current_url:
+            status.success("✅ Login successful — redirected to PortConnect portal.")
+            return True
+
+        # Still stuck in Azure B2C
+        if "b2clogin.com" in current_url:
+            status.warning("⚠️ Still on Azure B2C login page — login may not have completed.")
             return False
-        
-        # Step 4: Fill login form
-        EMAIL_SELECTOR = "#signInName"
-        PASSWORD_SELECTOR = "#password"
-        SUBMIT_BUTTON_SELECTOR = "#next"
-        
-        status_placeholder.info("4. Filling login form...")
-        
-        try:
-            email_field = page.wait_for_selector(EMAIL_SELECTOR, state="visible", timeout=15000)
-            password_field = page.wait_for_selector(PASSWORD_SELECTOR, state="visible", timeout=10000)
-            submit_button = page.wait_for_selector(SUBMIT_BUTTON_SELECTOR, state="visible", timeout=10000)
-            
-            status_placeholder.success("✅ All login form elements found")
-            
-            # Fill credentials
-            email_field.fill(USERNAME)
-            password_field.fill(PASSWORD)
-            
-            page.screenshot(path="debug_form_filled.png")
-            status_placeholder.success("✅ Form filled with credentials")
-            
-        except PlaywrightTimeoutError as e:
-            status_placeholder.error(f"❌ Login form elements not found: {e}")
-            # Check if we're on the right page
-            current_url = page.url
-            status_placeholder.info(f"Current URL: {current_url}")
-            return False
-        
-        # Step 5: Submit form
-        status_placeholder.info("5. Submitting login form...")
-        page.click(SUBMIT_BUTTON_SELECTOR)
-        
-        # Wait for redirect and check result
-        status_placeholder.info("6. Waiting for login response...")
-        
-        try:
-            # Wait for any of these possible outcomes
-            page.wait_for_timeout(5000)  # Give it time to process
-            
-            current_url = page.url
-            page_content = page.content()
-            
-            page.screenshot(path="debug_after_submit.png")
-            
-            if "dashboard" in current_url.lower() or "home" in current_url.lower():
-                status_placeholder.success("✅ Login appears successful - redirected to dashboard/home")
-                return True
-            elif "error" in page_content.lower() or "invalid" in page_content.lower():
-                status_placeholder.error("❌ Login failed - invalid credentials detected")
-                if "username" in page_content.lower():
-                    status_placeholder.info("Username field still present - login failed")
-                return False
-            elif "track and trace" in page_content.lower():
-                status_placeholder.success("✅ Login successful - found Track and Trace menu")
-                return True
-            else:
-                status_placeholder.warning("⚠️  Login result unclear - checking page content...")
-                status_placeholder.info(f"Current URL: {current_url}")
-                if "login" in current_url.lower():
-                    status_placeholder.error("Still on login page - credentials may be invalid")
-                    return False
-                return True  # Assume success if we're not on login page
-                
-        except Exception as e:
-            status_placeholder.error(f"❌ Error during login verification: {e}")
-            return False
-            
+
+        status.warning("⚠️ Login result unclear — unexpected page state.")
+        return False
+
+    except PlaywrightTimeoutError:
+        status.error("⏱️ Timeout occurred during login test.")
+        return False
+
     except Exception as e:
-        status_placeholder.error(f"❌ Unexpected error in login test: {e}")
+        status.error(f"🚨 Unexpected error: {e}")
         return False
 
 def run_diagnostic_scraper(container_list, status_placeholder):
