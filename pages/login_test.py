@@ -5,8 +5,8 @@ import sys
 
 # --- Configuration ---
 PORTCONNECT_URL = "https://www.portconnect.co.nz/#/home"
-USERNAME = "Importdoc@ecly.co.nz"
-PASSWORD = "Eclyltd88$"
+USERNAME = "importdoc@ecly.co.nz"
+PASSWORD = "Import261!!"
 
 # --- Playwright Installation ---
 @st.cache_resource(show_spinner="Setting up browser environment...")
