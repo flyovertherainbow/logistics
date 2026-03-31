@@ -134,41 +134,45 @@ def run_diagnostic_scraper(container_list, status_placeholder):
                 status_placeholder.success("🎉 Login test passed!")
                 
                 # -------------------------------
-                # NEW SEARCH PAGE LOGIC STARTS HERE
+                # NAVIGATION: Track & Trace → Search
                 # -------------------------------
-                status_placeholder.info("7. Navigating to Track & Trace Search...")
+                status_placeholder.info("7. Opening Track & Trace dropdown...")
 
-                # Navigate to Track & Trace main menu
-                page.locator('a[href="/#/track-trace"]').click()                 ### <-- UPDATED
-                page.wait_for_timeout(1000)                                     ### <-- UPDATED
+                # Step 1: Click the Track and Trace dropdown toggle to open the menu
+                page.locator('a[data-toggle="dropdown"][href="/#/track-trace"]').click()
 
-                # Navigate to Search page
-                page.locator('a[href="/#/track-trace/search"]').click()         ### <-- UPDATED
+                # Step 2: Wait for the Search link to become visible in the dropdown
+                search_nav_link = page.locator('a[href="/#/track-trace/search"]')
+                search_nav_link.wait_for(state="visible", timeout=5000)
+                status_placeholder.info("8. Clicking Search in dropdown menu...")
+                search_nav_link.click()
 
-                # Wait for container input box to appear
-                container_box = page.locator("#txContainerInput")               ### <-- UPDATED
-                container_box.wait_for(state="visible", timeout=15000)          ### <-- UPDATED
+                # Step 3: Wait for the search page URL and container input to load
+                page.wait_for_url("**/track-trace/search**", timeout=10000)
+                container_box = page.locator("#txContainerInput")
+                container_box.wait_for(state="visible", timeout=15000)
 
-                page.screenshot(path="debug_search_page.png")                   ### <-- UPDATED
-                status_placeholder.success("✅ Search page loaded")             ### <-- UPDATED
+                page.screenshot(path="debug_search_page.png")
+                status_placeholder.success("✅ Search page loaded")
 
-                # Diagnostic: test entering only the first container
+                # Step 4: Enter all container numbers and search
                 if container_list:
-                    container_number = container_list[0]
-                    status_placeholder.info(f"🔍 Entering container: {container_number}")  ### <-- UPDATED
+                    containers_text = "\n".join(container_list)
+                    status_placeholder.info(f"🔍 Entering {len(container_list)} container(s)...")
+                    container_box.fill(containers_text)
 
-                    container_box.fill(container_number)                       ### <-- UPDATED
+                    # Click Search button — scoped to form button group to avoid nav ambiguity
+                    page.locator("div.search-item-button").get_by_role("button", name="Search", exact=True).click()
 
-                    # Click Search button (new stable selector)
-                    page.get_by_role("button", name="Search").click()          ### <-- UPDATED
+                    # Wait for results table to populate
+                    page.wait_for_selector("table tbody tr", timeout=15000)
+                    page.screenshot(path="debug_after_search.png")
+                    status_placeholder.success("✅ Results loaded")
 
-                    page.wait_for_timeout(4000)                                ### <-- UPDATED
-                    page.screenshot(path="debug_after_search.png")             ### <-- UPDATED
-
-                return pd.DataFrame(), True                                     ### <-- UPDATED
+                return pd.DataFrame(), True
 
                 # -------------------------------
-                # END OF UPDATED SECTION
+                # END OF NAVIGATION SECTION
                 # -------------------------------
 
             else:
@@ -219,5 +223,7 @@ if st.button("Refresh Screenshots"):
             st.image("debug_after_submit.png", caption="After Login Submit")
     except:
         st.info("Screenshots not available yet - run the diagnostic first")
+
+
 
 
