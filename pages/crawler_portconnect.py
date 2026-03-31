@@ -237,9 +237,9 @@ def run_diagnostic_scraper(container_list, status_placeholder):
                     page.screenshot(path="debug_after_search.png")
                     status_placeholder.success("✅ Results loaded")
 
-                    # Scrape both results tables
+                    # Scrape both results tables and drop exact duplicate rows
                     records = scrape_results_table(page, status_placeholder)
-                    df = pd.DataFrame(records)
+                    df = pd.DataFrame(records).drop_duplicates().reset_index(drop=True)
                     return df, True
 
                 return pd.DataFrame(), True
@@ -343,6 +343,8 @@ if st.button("Refresh Screenshots"):
             st.image("debug_after_submit.png", caption="After Login Submit")
     except:
         st.info("Screenshots not available yet - run the diagnostic first")
+
+
 
 
 
