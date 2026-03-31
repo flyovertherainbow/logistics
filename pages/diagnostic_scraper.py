@@ -178,9 +178,14 @@ def run_diagnostic_scraper(container_list, status_placeholder):
                     track_trace_menu.click()
                     
                     # Look for search link
-                    search_link = page.locator('a[href="/#/track-trace/search"]')
-                    search_link.wait_for(state="visible", timeout=10000)
-                    search_link.click()
+                    #search_link = page.locator('a[href="/#/track-trace/search"]')
+                    #search_link.wait_for(state="visible", timeout=10000)
+                    #search_link.click()
+                    # Click Search button (new stable selector)
+                    status_placeholder.info("🔎 Clicking Search button…")
+                    search_button = page.locator('#track-trace-results button.btn.btn-primary', has_text="Search")
+                    search_button.wait_for(state="visible", timeout=8000)
+                    search_button.click()
                     
                     # Wait for search page
                     page.wait_for_selector(CONTAINER_INPUT_SELECTOR, state="visible", timeout=15000)
