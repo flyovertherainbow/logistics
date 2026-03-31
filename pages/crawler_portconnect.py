@@ -228,21 +228,26 @@ def run_diagnostic_scraper(container_list, status_placeholder):
                 if container_list:
                     containers_text = ",".join(container_list)
                     status_placeholder.info(f"🔍 Entering {len(container_list)} container(s)...")
-                    container_box.fill(containers_text)
 
-                    # Trigger Angular change detection — fill() alone doesn't fire ng model events
-                    container_box.dispatch_event("input")
-                    container_box.dispatch_event("change")
-                    page.wait_for_timeout(800)  # Wait for Angular to finish re-rendering
+                    # Click to focus, clear, then type character-by-character
+                    # — fill() bypasses Angular reactive form events; type() fires proper keydown/input/keyup
+                    container_box.click()
+                    container_box.select_text()
+                    container_box.type(containers_text, delay=30)
+                    page.wait_for_timeout(1000)  # Wait for Angular form validation to settle
 
-                    # Click Search — re-locate after re-render, use CSS selector directly
+                    # Re-locate Search button fresh after Angular re-render
                     search_btn = page.locator("div.search-item-button button.btn-primary").first
                     search_btn.wait_for(state="visible", timeout=10000)
                     search_btn.scroll_into_view_if_needed()
                     search_btn.click()
 
-                    # Wait for results table to populate
-                    page.wait_for_selector("table tbody tr", timeout=15000)
+                    # Wait for the DataTables info text to show actual results (not loading/empty state)
+                    # "Showing 1 to" appears only when rows are returned
+                    page.wait_for_function(
+                        "document.querySelector('.dataTables_info') && document.querySelector('.dataTables_info').innerText.includes('Showing 1')",
+                        timeout=20000
+                    )
                     page.screenshot(path="debug_after_search.png")
                     status_placeholder.success("✅ Results loaded")
 
@@ -352,6 +357,8 @@ if st.button("Refresh Screenshots"):
             st.image("debug_after_submit.png", caption="After Login Submit")
     except:
         st.info("Screenshots not available yet - run the diagnostic first")
+
+
 
 
 
