@@ -56,6 +56,13 @@ def test_login_sequence(page, status):
         status.info("1. Navigating to PortConnect...")
         page.goto(PORTCONNECT_URL, wait_until="load")
 
+        # Check if already logged in — portal is loaded and no B2C redirect occurred
+        current_url = page.url
+        if "portconnect.co.nz" in current_url and "b2clogin.com" not in current_url:
+            if not page.locator("#signInName").is_visible():
+                status.success("✅ Already logged in — skipping login steps.")
+                return True
+
         status.info("2. Clicking Sign-in/Sign-up dropdown...")
         page.click("#navbar > ul.nav.navbar-top-links.navbar-right > li > a")
 
@@ -343,6 +350,8 @@ if st.button("Refresh Screenshots"):
             st.image("debug_after_submit.png", caption="After Login Submit")
     except:
         st.info("Screenshots not available yet - run the diagnostic first")
+
+
 
 
 
