@@ -4,9 +4,6 @@ import re
 from datetime import datetime, timedelta
 from io import BytesIO
 
-import streamlit as st
-st.warning("✅ RUNNING UPDATED CODE VERSION (Created-date fix enabled)")
-
 # =========================================================
 # App config
 # =========================================================
@@ -21,15 +18,14 @@ st.title("Shipment Level Report → STAGING.xlsx")
 # Helpers
 # =========================================================
 ORDER_RE = re.compile(r"\b\d{6}\b")
+CREATED_DT_REGEX = re.compile(r"(\d{1,2}\.\d{1,2}\.\d{4}\s+\d{1,2}:\d{2})")
 
 def extract_orders(val):
-    """Extract unique 6‑digit order numbers from any string."""
     if pd.isna(val):
         return []
     return list(dict.fromkeys(ORDER_RE.findall(str(val))))
 
 def excel_serial_to_date(val):
-    """Convert Excel serial date to date (DATE ONLY)."""
     if pd.isna(val):
         return None
     try:
@@ -38,7 +34,6 @@ def excel_serial_to_date(val):
         return None
 
 def parse_eta_any(val):
-    """Parse ETA from serial or dd/mm/yy string into date."""
     if pd.isna(val):
         return None
     if isinstance(val, (int, float)):
@@ -54,12 +49,8 @@ def parse_eta_any(val):
 # =========================================================
 # File upload
 # =========================================================
-shipment_file = st.file_uploader(
-    "Upload Shipment Level Report (.xlsx)", type=["xlsx"]
-)
-staging_file = st.file_uploader(
-    "Upload STAGING.xlsx", type=["xlsx"]
-)
+shipment_file = st.file_uploader("Upload Shipment Level Report (.xlsx)", type=["xlsx"])
+staging_file = st.file_uploader("Upload STAGING.xlsx", type=["xlsx"])
 
 if not shipment_file or not staging_file:
     st.info("Please upload both files to continue.")
@@ -70,7 +61,7 @@ if not shipment_file or not staging_file:
 # =========================================================
 ship_raw = pd.read_excel(shipment_file, header=None)
 
-# Find header row
+# Find shipment header row
 ship_header = None
 for i, row in ship_raw.iterrows():
     text = " ".join(str(x).lower() for x in row if pd.notna(x))
@@ -82,59 +73,52 @@ if ship_header is None:
     st.error("Shipment header row not found.")
     st.stop()
 
-ship_df = pd.read_excel(shipment_file, header=ship_header)
-# Normalize shipment column names (DHL-safe)
+ship_df = pd.read_excel(shipment_file, header=ship_header).copy()
+
+# Normalize shipment column names
 ship_df.columns = (
-    ship_df.columns
-    .astype(str)
+    ship_df.columns.astype(str)
     .str.strip()
     .str.replace(r"\s+", " ", regex=True)
 )
 
-
-# Extract Created date (DATE ONLY)
-
 # =========================================================
-# Extract Created date (DATE ONLY, DHL-robust)
+# Extract Created date (DHL‑robust, DATE ONLY)
 # =========================================================
-CREATED_DT_REGEX = re.compile(r"\b\d{2}\.\d{2}\.\d{4}\s+\d{2}:\d{2}")
-
 created_date = None
 
 for r_idx, row in ship_raw.iterrows():
     row_text = " ".join(str(x) for x in row if pd.notna(x))
-
     if "created" in row_text.lower():
-        for check_row in range(max(0, r_idx - 1), min(len(ship_raw), r_idx + 3)):
-            check_text = " ".join(
-                str(x) for x in ship_raw.iloc[check_row] if pd.notna(x)
-            )
-            match = CREATED_DT_REGEX.search(check_text)
+        for cr in range(max(0, r_idx - 2), min(len(ship_raw), r_idx + 4)):
+            cr_text = " ".join(str(x) for x in ship_raw.iloc[cr] if pd.notna(x))
+            match = CREATED_DT_REGEX.search(cr_text)
             if match:
                 created_date = datetime.strptime(
-                    match.group(), "%d.%m.%Y %H:%M"
+                    match.group(1), "%d.%m.%Y %H:%M"
                 ).date()
                 break
     if created_date:
         break
 
-if created_date is None:
+if not created_date:
     st.error("Created date not found in shipment report.")
     st.stop()
 
 st.success(f"Shipment report date: {created_date.strftime('%d/%m/%Y')}")
 
-
-
-# ETA handling (DATE ONLY) and filter
+# =========================================================
+# Shipment ETA processing (FIXED)
+# =========================================================
 ship_df["ETA_date"] = ship_df["Estimated Arrival"].apply(parse_eta_any)
+
 ship_df = ship_df[
     ship_df["ETA_date"].notna() &
     (ship_df["ETA_date"] > created_date)
 ].copy()
 
-# Extract orders
 ship_df["orders"] = ship_df["All References"].apply(extract_orders)
+
 invalid_refs = ship_df[ship_df["orders"].map(len) == 0]
 ship_df = ship_df[ship_df["orders"].map(len) > 0].copy()
 
@@ -142,17 +126,13 @@ ship_df = ship_df[ship_df["orders"].map(len) > 0].copy()
 # Load STAGING.xlsx (LATEST SHEET ONLY)
 # =========================================================
 xls = pd.ExcelFile(staging_file)
-
 sheet_dates = {}
+
 for s in xls.sheet_names:
     try:
         sheet_dates[s] = datetime.strptime(s, "%m.%Y")
     except Exception:
         continue
-
-if not sheet_dates:
-    st.error("No date-based sheets found in STAGING.xlsx.")
-    st.stop()
 
 latest_sheet = max(sheet_dates, key=sheet_dates.get)
 st.info(f"Using STAGING sheet: {latest_sheet}")
@@ -167,30 +147,24 @@ for i, row in stg_raw.iterrows():
         stg_header = i
         break
 
-if stg_header is None:
-    st.error("Staging header row not found.")
-    st.stop()
-
 stg_df = pd.read_excel(
     staging_file,
     sheet_name=latest_sheet,
     header=stg_header
 ).copy()
 
-stg_df.columns = [c.strip() for c in stg_df.columns]
+# Normalize staging column names
+stg_df.columns = (
+    stg_df.columns.astype(str)
+    .str.strip()
+    .str.replace(r"\s+", " ", regex=True)
+)
 
-# Mandatory columns
-lower_cols = [c.lower() for c in stg_df.columns]
-for col in ["bc po", "arrival vessel", "eta"]:
-    if col not in lower_cols:
-        st.error(f"Mandatory column missing in STAGING: {col}")
-        st.stop()
-
-# Normalise ETA and orders in staging
+# Parse ETA & orders in staging
 stg_df["_ETA_date"] = stg_df["ETA"].apply(parse_eta_any)
 stg_df["orders"] = stg_df["bc po"].apply(extract_orders)
 
-# Map staging orders to row indices
+# Map staging orders
 stg_order_map = {}
 for idx, orders in stg_df["orders"].items():
     for o in orders:
@@ -204,30 +178,60 @@ vessel_changes = []
 eta_only_changes = []
 
 for _, ship_row in ship_df.iterrows():
+    ship_eta = ship_row["ETA_date"]
+    ship_vessel_raw = ship_row.get("Vessel Name (Last Leg)")
+    norm_ship_vessel = (
+        str(ship_vessel_raw).strip().upper()
+        if pd.notna(ship_vessel_raw) else None
+    )
+
     for order in ship_row["orders"]:
 
-        ship_eta = ship_row["ETA_date"]
-        ship_vessel = ship_row.get("Vessel Name (Last Leg)")
-
-        # -------- NEW ORDER --------
+        # NEW ORDER
         if order not in stg_order_map:
             new_orders.append({
                 "Order": order,
                 "Supplier": ship_row.get("Shipper Name"),
                 "ETA": ship_eta.strftime("%d/%m/%y"),
                 "Discharge Port": ship_row.get("Port of Discharge Code"),
-                "Vessel": ship_vessel,
+                "Vessel": ship_vessel_raw,
                 "Voyage": ship_row.get("Voyage/Flight Number (Last Leg)"),
                 "Container": ship_row.get("Container Number"),
             })
             continue
 
-        # -------- EXISTING ORDER --------
+        # EXISTING ORDER
         for idx in stg_order_map[order]:
             stg_eta = stg_df.at[idx, "_ETA_date"]
-            stg_vessel = stg_df.at[idx, "Arrival Vessel"]
+            stg_vessel_raw = stg_df.at[idx, "Arrival Vessel"]
+            norm_stg_vessel = (
+                str(stg_vessel_raw).strip().upper()
+                if pd.notna(stg_vessel_raw) else None
+            )
 
-            vessel_changed = pd.notna(ship_vessel) and stg_vessel != ship_vessel
+            vessel_changed = (
+                norm_ship_vessel and
+                norm_stg_vessel and
+                norm_ship_vessel != norm_stg_vessel
+            )
+
+            eta_changed = stg_eta != ship_eta
+
+            if vessel_changed:
+                vessel_changes.append({
+                    "Order": order,
+                    "Old Vessel": stg_vessel_raw,
+                    "New Vessel": ship_vessel_raw,
+                    "ETA": ship_eta.strftime("%d/%m/%y"),
+                })
+
+            elif eta_changed:
+                eta_only_changes.append({
+                    "Order": order,
+                    "Old ETA": stg_eta.strftime("%d/%m/%y") if stg_eta else "(blank)",
+                    "New ETA": ship_eta.strftime("%d/%m/%y"),
+                    "Vessel": stg_vessel_raw,
+                })
 
 # =========================================================
 # PREVIEW UI (ALWAYS RENDER)
@@ -236,28 +240,5 @@ st.subheader("Preview Changes")
 
 if not new_orders and not vessel_changes and not eta_only_changes:
     st.info(
-        "✅ No changes detected.\n\n"
-        "- No new orders to insert\n"
-        "- No vessel name changes\n"
-        "- No ETA changes\n\n"
-        "This means STAGING.xlsx is already up to date for this shipment report."
-    )
-else:
-    st.markdown("### 🆕 New Orders to Insert")
-    if new_orders:
-        st.dataframe(pd.DataFrame(new_orders))
-    else:
-        st.write("None")
 
-    st.markdown("### 🚢 Vessel Name Changed")
-    if vessel_changes:
-        st.dataframe(pd.DataFrame(vessel_changes))
-    else:
-        st.write("None")
-
-    st.markdown("### 📆 ETA Changed (Vessel Unchanged)")
-    if eta_only_changes:
-        st.dataframe(pd.DataFrame(eta_only_changes))
-    else:
-        st.write("None")
 
