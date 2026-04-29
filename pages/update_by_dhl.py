@@ -83,6 +83,13 @@ if ship_header is None:
     st.stop()
 
 ship_df = pd.read_excel(shipment_file, header=ship_header)
+# Normalize shipment column names (DHL-safe)
+ship_df.columns = (
+    ship_df.columns
+    .astype(str)
+    .str.strip()
+    .str.replace(r"\s+", " ", regex=True)
+)
 
 
 # Extract Created date (DATE ONLY)
