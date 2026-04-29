@@ -4,6 +4,9 @@ import re
 from datetime import datetime, timedelta
 from io import BytesIO
 
+import streamlit as st
+st.warning("✅ RUNNING UPDATED CODE VERSION (Created-date fix enabled)")
+
 # =========================================================
 # App config
 # =========================================================
@@ -83,20 +86,50 @@ ship_df = pd.read_excel(shipment_file, header=ship_header)
 
 
 # Extract Created date (DATE ONLY)
+
+# =========================================================
+# Extract Created date (DEBUG MODE)
+# =========================================================
+CREATED_DT_REGEX = re.compile(
+    r"(\d{1,2}\.\d{1,2}\.\d{4}\s+\d{1,2}:\d{2})"
+)
+
 created_date = None
-for i, row in ship_raw.iloc[:ship_header].iterrows():
-    if str(row[0]).lower() == "created":
-        created_date = datetime.strptime(
-            ship_raw.iloc[i + 1, 0].replace(" UTC", ""),
-            "%d.%m.%Y %H:%M"
-        ).date()
+
+st.write("🔍 Scanning Shipment Level Report for Created date...")
+
+for r_idx, row in ship_raw.iterrows():
+    row_text = " ".join(str(x) for x in row if pd.notna(x))
+
+    if "created" in row_text.lower():
+        st.write(f"➡ Found 'Created' near row {r_idx}:")
+        st.write(row_text)
+
+        for check_row in range(max(0, r_idx - 2), min(len(ship_raw), r_idx + 4)):
+            check_text = " ".join(
+                str(x) for x in ship_raw.iloc[check_row] if pd.notna(x)
+            )
+            match = CREATED_DT_REGEX.search(check_text)
+
+            if match:
+                ts = match.group(1)
+                st.write(f"✅ Found datetime candidate in row {check_row}: {ts}")
+
+                try:
+                    created_date = datetime.strptime(ts, "%d.%m.%Y %H:%M").date()
+                    st.success(f"✅ Parsed created_date = {created_date}")
+                    break
+                except Exception as e:
+                    st.error(f"❌ Failed parsing datetime: {ts}")
+                    st.exception(e)
+
+    if created_date:
         break
 
-if created_date is None:
-    st.error("Created date not found in shipment report.")
+if not created_date:
+    st.error("❌ Created date STILL not found. See debug output above.")
     st.stop()
 
-st.success(f"Shipment report date: {created_date.strftime('%d/%m/%Y')}")
 
 
 # ETA handling (DATE ONLY) and filter
