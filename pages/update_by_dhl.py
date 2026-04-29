@@ -221,3 +221,36 @@ for _, ship_row in ship_df.iterrows():
             stg_vessel = stg_df.at[idx, "Arrival Vessel"]
 
             vessel_changed = pd.notna(ship_vessel) and stg_vessel != ship_vessel
+
+# =========================================================
+# PREVIEW UI (ALWAYS RENDER)
+# =========================================================
+st.subheader("Preview Changes")
+
+if not new_orders and not vessel_changes and not eta_only_changes:
+    st.info(
+        "✅ No changes detected.\n\n"
+        "- No new orders to insert\n"
+        "- No vessel name changes\n"
+        "- No ETA changes\n\n"
+        "This means STAGING.xlsx is already up to date for this shipment report."
+    )
+else:
+    st.markdown("### 🆕 New Orders to Insert")
+    if new_orders:
+        st.dataframe(pd.DataFrame(new_orders))
+    else:
+        st.write("None")
+
+    st.markdown("### 🚢 Vessel Name Changed")
+    if vessel_changes:
+        st.dataframe(pd.DataFrame(vessel_changes))
+    else:
+        st.write("None")
+
+    st.markdown("### 📆 ETA Changed (Vessel Unchanged)")
+    if eta_only_changes:
+        st.dataframe(pd.DataFrame(eta_only_changes))
+    else:
+        st.write("None")
+
