@@ -81,6 +81,7 @@ if ship_header is None:
 
 ship_df = pd.read_excel(shipment_file, header=ship_header)
 
+
 # Extract Created date (DATE ONLY)
 created_date = None
 for i, row in ship_raw.iloc[:ship_header].iterrows():
@@ -96,6 +97,7 @@ if created_date is None:
     st.stop()
 
 st.success(f"Shipment report date: {created_date.strftime('%d/%m/%Y')}")
+
 
 # ETA handling (DATE ONLY) and filter
 ship_df["ETA_date"] = ship_df["Estimated Arrival"].apply(excel_serial_to_date)
