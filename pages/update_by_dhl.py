@@ -191,5 +191,94 @@ else:
         st.markdown("### 📆 ETA Changed")
         st.dataframe(pd.DataFrame(eta_only_changes))
 
+# =========================================================
+# CONFIRM & APPLY ACTIONS
+# =========================================================
+st.markdown("---")
 
+has_changes = bool(new_orders or vessel_changes or eta_only_changes)
+
+confirm = st.checkbox(
+    "✅ I confirm the above changes are correct and want to apply them.",
+    disabled=not has_changes
+)
+
+if st.button("Apply Changes to STAGING.xlsx", disabled=not confirm):
+
+    # -----------------------------
+    # INSERT NEW ORDERS (by ETA order)
+    # -----------------------------
+    for item in new_orders:
+        new_eta = datetime.strptime(item["ETA"], "%d/%m/%y").date()
+
+        # sort existing rows by ETA (blank last)
+        sorted_df = stg_df.sort_values(
+            by="_ETA_date",
+            key=lambda s: s.isna()
+        ).reset_index(drop=True)
+
+        # find insert position
+        pos = 0
+        for i, r in sorted_df.iterrows():
+            if r["_ETA_date"] and r["_ETA_date"] <= new_eta:
+                pos = i + 1
+
+        new_row = {
+            "bc po": item["Order"],
+            "Supplier": item["Supplier"],
+            "ETA": item["ETA"],
+            "Discharge Port": item.get("Discharge Port"),
+            "Arrival Vessel": item.get("Vessel"),
+            "Arrival Voyage": item.get("Voyage"),
+            "Container": item.get("Container"),
+        }
+
+        top = sorted_df.iloc[:pos]
+        bottom = sorted_df.iloc[pos:]
+        stg_df = pd.concat(
+            [top, pd.DataFrame([new_row]), bottom],
+            ignore_index=True
+        )
+
+        # recompute helpers after insert
+        stg_df["_ETA_date"] = stg_df["ETA"].apply(parse_eta_any)
+        stg_df["orders"] = stg_df["bc po"].apply(extract_orders)
+
+    # -----------------------------
+    # APPLY VESSEL NAME UPDATES
+    # -----------------------------
+    for change in vessel_changes:
+        for idx in stg_order_map.get(change["Order"], []):
+            stg_df.at[idx, "Arrival Vessel"] = change["New Vessel"]
+
+    # -----------------------------
+    # APPLY ETA-ONLY UPDATES
+    # -----------------------------
+    for change in eta_only_changes:
+        for idx in stg_order_map.get(change["Order"], []):
+            stg_df.at[idx, "ETA"] = change["New ETA"]
+
+    # -----------------------------
+    # SAVE UPDATED FILE
+    # -----------------------------
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        for sheet in xls.sheet_names:
+            if sheet == latest_sheet:
+                stg_df.drop(columns=["_ETA_date", "orders"], errors="ignore") \
+                      .to_excel(writer, sheet_name=sheet, index=False)
+            else:
+                pd.read_excel(staging_file, sheet_name=sheet) \
+                  .to_excel(writer, sheet_name=sheet, index=False)
+
+    output.seek(0)
+
+    st.download_button(
+        "⬇ Download Updated STAGING.xlsx",
+        data=output,
+        file_name="STAGING_updated.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+    st.success("✅ Changes applied successfully.")
 
