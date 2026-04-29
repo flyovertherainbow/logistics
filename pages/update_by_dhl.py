@@ -120,7 +120,7 @@ st.success(f"Shipment report date: {created_date.strftime('%d/%m/%Y')}")
 
 
 # ETA handling (DATE ONLY) and filter
-ship_df["ETA_date"] = ship_df["Estimated Arrival"].apply(excel_serial_to_date)
+ship_df["ETA_date"] = ship_df["Estimated Arrival"].apply(parse_eta_any)
 ship_df = ship_df[
     ship_df["ETA_date"].notna() &
     (ship_df["ETA_date"] > created_date)
