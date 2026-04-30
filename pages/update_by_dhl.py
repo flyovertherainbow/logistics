@@ -212,24 +212,7 @@ confirm = st.checkbox(
 )
 
 if st.button("Apply Changes to STAGING.xlsx", disabled=not confirm):
-    # -----------------------------
-    # FINAL NORMALIZE ETA FORMAT
-    # -----------------------------
-    stg_df["ETA"] = stg_df["ETA"].apply(format_eta_ddmmyy)
-    
-    # -----------------------------
-    # FINAL SORT BY ETA (date only, blank last)
-    # -----------------------------
-    stg_df["_ETA_date"] = stg_df["ETA"].apply(parse_eta_any)
-    
-    stg_df = (
-        stg_df
-        .sort_values(
-            by="_ETA_date",
-            key=lambda s: s.isna()
-        )
-        .reset_index(drop=True)
-    )
+   
     # -----------------------------
     # INSERT NEW ORDERS (by ETA order)
     # -----------------------------
@@ -284,6 +267,25 @@ if st.button("Apply Changes to STAGING.xlsx", disabled=not confirm):
         for idx in stg_order_map.get(change["Order"], []):
             stg_df.at[idx, "ETA"] = change["New ETA"]
 
+    
+    # 5. Normalize ETA to dd/mm/YY
+    stg_df["ETA"] = stg_df["ETA"].apply(format_eta_ddmmyy)
+    
+    # 6. Rebuild ETA_date AFTER normalization
+    stg_df["_ETA_date"] = stg_df["ETA"].apply(parse_eta_any)
+    
+    # 7. ✅ FINAL SORT (this block)
+    stg_df = (
+        stg_df
+        .sort_values(
+            by="_ETA_date",
+            ascending=True,
+            na_position="last"
+        )
+        .reset_index(drop=True)
+
+
+    
     # -----------------------------
     # SAVE UPDATED FILE
     # -----------------------------
