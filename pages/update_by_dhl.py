@@ -229,7 +229,7 @@ if st.button("Apply Changes to STAGING.xlsx", disabled=not confirm):
         pos = 0
         for i, r in sorted_df.iterrows():
             eta_val = r["_ETA_date"]
-            if isinstance(eta_val, (datetime, pd.Timestamp)) and eta_val.date() <= new_eta:
+            if pd.notna(eta_val) and eta_val <= new_eta:
                 pos = i + 1
 
         new_row = {
