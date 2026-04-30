@@ -228,7 +228,8 @@ if st.button("Apply Changes to STAGING.xlsx", disabled=not confirm):
         # find insert position
         pos = 0
         for i, r in sorted_df.iterrows():
-            if r["_ETA_date"] and r["_ETA_date"] <= new_eta:
+            eta_val = r["_ETA_date"]
+            if isinstance(eta_val, (datetime, pd.Timestamp)) and eta_val.date() <= new_eta:
                 pos = i + 1
 
         new_row = {
