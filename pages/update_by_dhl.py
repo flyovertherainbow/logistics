@@ -45,7 +45,9 @@ def parse_eta_any(val):
 
 def format_eta_ddmmyy(val):
     d = parse_eta_any(val)
-    return d.strftime("%d/%m/%y") if d else ""
+    if pd.isna(d):
+        return ""
+    return d.strftime("%d/%m/%y")
 
 
 
