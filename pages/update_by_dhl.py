@@ -164,7 +164,7 @@ for _, ship_row in ship_df.iterrows():
                 vessel_changes.append({
                     "Order": order,
                     "Old Vessel": stg_vessel_raw,
-                    "New Vessel": ship_vessel_raw
+                    "New Vessel": norm_ship_vessel
                 })
             elif stg_eta != ship_eta:
                 eta_only_changes.append({
