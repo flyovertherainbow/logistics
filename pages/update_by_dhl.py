@@ -224,8 +224,10 @@ if st.button("Apply Changes to STAGING.xlsx", disabled=not confirm):
         # sort existing rows by ETA (blank last)
         sorted_df = stg_df.sort_values(
             by="_ETA_date",
-            key=lambda s: s.isna()
+            ascending=True,
+            na_position="last"
         ).reset_index(drop=True)
+
 
         # find insert position
         pos = 0
@@ -254,6 +256,14 @@ if st.button("Apply Changes to STAGING.xlsx", disabled=not confirm):
         # recompute helpers after insert
         stg_df["_ETA_date"] = stg_df["ETA"].apply(parse_eta_any)
         stg_df["orders"] = stg_df["bc po"].apply(extract_orders)
+
+    # -----------------------------
+    # REBUILD ORDER MAP AFTER INSERTS
+    # -----------------------------
+    stg_order_map = {}
+    for idx, orders in stg_df["orders"].items():
+        for o in orders:
+            stg_order_map.setdefault(o, []).append(idx)
 
     # -----------------------------
     # APPLY VESSEL NAME UPDATES
