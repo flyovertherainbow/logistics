@@ -283,7 +283,7 @@ if st.button("Apply Changes to STAGING.xlsx", disabled=not confirm):
             na_position="last"
         )
         .reset_index(drop=True)
-
+    )
 
     
     # -----------------------------
