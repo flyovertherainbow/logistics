@@ -28,11 +28,7 @@ def excel_serial_to_date(val):
         return (datetime(1899, 12, 30) + timedelta(days=float(val))).date()
     except Exception:
         return None
-def format_eta_ddmmyy(val):
-    d = parse_eta_any(val)
-    return d.strftime("%d/%m/%y") if d else ""
 
-stg_df["ETA"] = stg_df["ETA"].apply(format_eta_ddmmyy)
 
 def parse_eta_any(val):
     if pd.isna(val):
@@ -46,6 +42,12 @@ def parse_eta_any(val):
             return pd.to_datetime(val).date()
         except Exception:
             return None
+
+def format_eta_ddmmyy(val):
+    d = parse_eta_any(val)
+    return d.strftime("%d/%m/%y") if d else ""
+
+
 
 # =========================================================
 # File upload
@@ -134,6 +136,7 @@ stg_df.columns = stg_df.columns.astype(str).str.strip().str.replace(r"\s+", " ",
 
 stg_df["_ETA_date"] = stg_df["ETA"].apply(parse_eta_any)
 stg_df["orders"] = stg_df["bc po"].apply(extract_orders)
+stg_df["ETA"] = stg_df["ETA"].apply(format_eta_ddmmyy)
 
 stg_order_map = {}
 for idx, orders in stg_df["orders"].items():
