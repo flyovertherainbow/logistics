@@ -28,6 +28,11 @@ def excel_serial_to_date(val):
         return (datetime(1899, 12, 30) + timedelta(days=float(val))).date()
     except Exception:
         return None
+def format_eta_ddmmyy(val):
+    d = parse_eta_any(val)
+    return d.strftime("%d/%m/%y") if d else ""
+
+stg_df["ETA"] = stg_df["ETA"].apply(format_eta_ddmmyy)
 
 def parse_eta_any(val):
     if pd.isna(val):
