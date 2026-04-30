@@ -47,16 +47,7 @@ def format_eta_ddmmyy(val):
     d = parse_eta_any(val)
     return d.strftime("%d/%m/%y") if d else ""
 
-# Final ETA sort (date only, blank last)
 
-stg_df = (
-    stg_df
-    .sort_values(
-        by="_ETA_date",
-        key=lambda s: s.isna()   # push blank/NaT to bottom
-    )
-    .reset_index(drop=True)
-)
 
 # =========================================================
 # File upload
