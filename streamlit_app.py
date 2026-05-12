@@ -8,14 +8,14 @@ st.info("Estimated recovery time: TBD. Please try again later.")
 st.stop()
 #-----
 # 设置页面配置
-st.set_page_config(
-    page_title="IMPORT DOC UPDATER",
-    page_icon="📦",
-    layout="centered"
-)
+#st.set_page_config(
+#    page_title="IMPORT DOC UPDATER",
+#    page_icon="📦",
+#    layout="centered"
+#)
 
 # 页面标题
-st.title("📦 IMPORT DOC UPDATE TOOL")
+#st.title("📦 IMPORT DOC UPDATE TOOL")
 
 # 主页面内容
 
