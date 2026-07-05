@@ -19,7 +19,7 @@ st.caption(
 st.markdown("---")
 
 # ==============================
-# Currency selection (display only)
+# Currency selection
 # ==============================
 currency = st.selectbox(
     "Invoice Currency",
@@ -30,6 +30,9 @@ currency = st.selectbox(
         "CNY - Chinese Yuan",
     ],
 )
+
+# Extract just the 3-letter code (e.g., "USD") for cleaner labels
+curr_code = currency.split(" ")[0] 
 
 st.markdown("### Payment Inputs")
 
@@ -86,8 +89,9 @@ for i in range(st.session_state.fx_rows):
         )
 
     with c2:
+        # UPDATED: Changed label from NZD / Foreign to Foreign / NZD (e.g., USD / NZD)
         rate = st.number_input(
-            f"FX Rate (ex-{i + 1})  NZD / Foreign",
+            f"FX Rate (ex-{i + 1})  {curr_code} / NZD",
             min_value=0.0,
             step=0.0001,
             format="%.6f",
@@ -97,7 +101,7 @@ for i in range(st.session_state.fx_rows):
     rows_data.append(
         {
             "Foreign Amount": pay,
-            "FX Rate (NZD/Foreign)": rate,
+            f"FX Rate ({curr_code}/NZD)": rate,
         }
     )
 
@@ -111,23 +115,30 @@ if st.button("📊 Calculate Average Rate"):
 
     total_foreign = df["Foreign Amount"].sum()
     
-    # Keeps your original math (assuming input is 1 Foreign = X NZD)
-    total_nzd = (df["Foreign Amount"] * df["FX Rate (NZD/Foreign)"]).sum()
+    # UPDATED LOGIC: 
+    # Since the input rate is now Foreign/NZD (e.g., how many USD per 1 NZD),
+    # NZD Amount = Foreign Amount / FX Rate
+    # We protect against division by zero in case a rate field is left empty.
+    rate_col = f"FX Rate ({curr_code}/NZD)"
+    df["NZD Amount"] = df.apply(
+        lambda row: row["Foreign Amount"] / row[rate_col] if row[rate_col] > 0 else 0.0, 
+        axis=1
+    )
+    
+    total_nzd = df["NZD Amount"].sum()
 
     if total_foreign == 0:
         st.error(
             "Foreign amount total is zero. "
             "Average rate cannot be calculated."
         )
+    elif total_nzd == 0:
+        st.error(
+            "Total NZD paid is zero. Please check your FX Rate inputs."
+        )
     else:
-        # 1. Calculate the base NZD/Foreign rate first
-        avg_rate_nzd_foreign = total_nzd / total_foreign
-        
-        # 2. INVERT IT to get the Foreign/NZD format
-        if avg_rate_nzd_foreign != 0:
-            avg_rate_foreign_nzd = 1 / avg_rate_nzd_foreign
-        else:
-            avg_rate_foreign_nzd = 0
+        # UPDATED LOGIC: Weighted Average in Foreign / NZD format
+        avg_rate_foreign_nzd = total_foreign / total_nzd
 
         st.success("Calculation completed successfully.")
 
@@ -136,18 +147,12 @@ if st.button("📊 Calculate Average Rate"):
         st.write(f"**Total Foreign Amount**: {total_foreign:,.2f}")
         st.write(f"**Total NZD Paid**: {total_nzd:,.2f}")
         
-        # 3. Display the flipped result
-        # Grabs just the 3-letter currency code (e.g., "USD") for a cleaner label
-        curr_code = currency.split(" ")[0] 
+        # UPDATED: Clearly states the result in the requested Foreign / NZD format
         st.markdown(
             f"### ⭐ Weighted Average FX Rate: "
             f"**`{avg_rate_foreign_nzd:.6f}` {curr_code} / NZD**"
         )
 
         with st.expander("View Calculation Details"):
-            df["NZD Amount"] = (
-                df["Foreign Amount"]
-                * df["FX Rate (NZD/Foreign)"]
-            )
             st.dataframe(df, use_container_width=True)
 
