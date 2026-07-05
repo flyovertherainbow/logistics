@@ -110,8 +110,8 @@ if st.button("📊 Calculate Average Rate"):
     df = pd.DataFrame(rows_data)
 
     total_foreign = df["Foreign Amount"].sum()
-    total_nzd = (df["Foreign Amount"] * df["FX Rate (NZD/Foreign)"]).sum()
-
+    #total_nzd = (df["Foreign Amount"] * df["FX Rate (NZD/Foreign)"]).sum()
+    total_nzd = (df["Foreign Amount"] / df["FX Rate (NZD/Foreign)"]).sum()
     if total_foreign == 0:
         st.error(
             "Foreign amount total is zero. "
@@ -130,11 +130,12 @@ if st.button("📊 Calculate Average Rate"):
             f"### ⭐ Weighted Average FX Rate: "
             f"**`{avg_rate:.6f}` NZD / Foreign**"
         )
-
+        
         with st.expander("View Calculation Details"):
-            df["NZD Amount"] = (
-                df["Foreign Amount"]
-                * df["FX Rate (NZD/Foreign)"]
-            )
+            df["NZD Amount"] = df["Foreign Amount"] / df["FX Rate (NZD/Foreign)"]
+            #df["NZD Amount"] = (
+            #   df["Foreign Amount"]
+            #    * df["FX Rate (NZD/Foreign)"]
+            #)
             st.dataframe(df, use_container_width=True)
 
