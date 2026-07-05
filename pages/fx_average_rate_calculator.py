@@ -110,15 +110,24 @@ if st.button("📊 Calculate Average Rate"):
     df = pd.DataFrame(rows_data)
 
     total_foreign = df["Foreign Amount"].sum()
-    #total_nzd = (df["Foreign Amount"] * df["FX Rate (NZD/Foreign)"]).sum()
-    total_nzd = (df["Foreign Amount"] / df["FX Rate (NZD/Foreign)"]).sum()
+    
+    # Keeps your original math (assuming input is 1 Foreign = X NZD)
+    total_nzd = (df["Foreign Amount"] * df["FX Rate (NZD/Foreign)"]).sum()
+
     if total_foreign == 0:
         st.error(
             "Foreign amount total is zero. "
             "Average rate cannot be calculated."
         )
     else:
-        avg_rate = total_nzd / total_foreign
+        # 1. Calculate the base NZD/Foreign rate first
+        avg_rate_nzd_foreign = total_nzd / total_foreign
+        
+        # 2. INVERT IT to get the Foreign/NZD format
+        if avg_rate_nzd_foreign != 0:
+            avg_rate_foreign_nzd = 1 / avg_rate_nzd_foreign
+        else:
+            avg_rate_foreign_nzd = 0
 
         st.success("Calculation completed successfully.")
 
@@ -126,16 +135,19 @@ if st.button("📊 Calculate Average Rate"):
         st.write(f"**Invoice Currency**: {currency}")
         st.write(f"**Total Foreign Amount**: {total_foreign:,.2f}")
         st.write(f"**Total NZD Paid**: {total_nzd:,.2f}")
+        
+        # 3. Display the flipped result
+        # Grabs just the 3-letter currency code (e.g., "USD") for a cleaner label
+        curr_code = currency.split(" ")[0] 
         st.markdown(
             f"### ⭐ Weighted Average FX Rate: "
-            f"**`{avg_rate:.6f}` NZD / Foreign**"
+            f"**`{avg_rate_foreign_nzd:.6f}` {curr_code} / NZD**"
         )
-        
+
         with st.expander("View Calculation Details"):
-            df["NZD Amount"] = df["Foreign Amount"] / df["FX Rate (NZD/Foreign)"]
-            #df["NZD Amount"] = (
-            #   df["Foreign Amount"]
-            #    * df["FX Rate (NZD/Foreign)"]
-            #)
+            df["NZD Amount"] = (
+                df["Foreign Amount"]
+                * df["FX Rate (NZD/Foreign)"]
+            )
             st.dataframe(df, use_container_width=True)
 
